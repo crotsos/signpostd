@@ -88,8 +88,11 @@ let forward_dns_query_to_sp _ q =
   let src = !node_name in 
   let host = (Printf.sprintf "%s.%s.%s" dst src our_domain) in  
   lwt src_ip = 
+(*
       Dns_resolver.gethostbyname
         ~server:Config.external_ip ~dns_port:Config.dns_port host
+ *)
+    Dns_resolver.gethostbyname host
   in
   match src_ip with
     | [] ->
