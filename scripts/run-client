@@ -54,4 +54,4 @@ route -n | grep 10\\.\[23\]\\. | awk '{print $1" netmask "$3" gw "$2;}' \
 
 sudo sh /tmp/sp_route_cleanup.sh   
 
-./client.native $NODE_NAME $IP $SIG_PORT
+./client.byte $NODE_NAME $IP $SIG_PORT

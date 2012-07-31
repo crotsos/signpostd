@@ -17,23 +17,23 @@ Library signpost
 Executable server
   Path:               lib
   MainIs:             server.ml
-  Custom:             true
-  CompiledObject:     best
+  Custom:             false
+  CompiledObject:     byte
   Install:            false
   BuildDepends:       signpost, ocamlgraph, dns, dns.server
 
 Executable client
   Path:               lib
   MainIs:             client.ml
-  Custom:             true
-  CompiledObject:     best
+  Custom:             false
+  CompiledObject:     byte
   Install:            false
   BuildDepends:       signpost, dns, dns.server
 
 Executable send_cmd
   Path:               lib
   MainIs:             remoteControl.ml
-  Custom:             true
+  Custom:             false
   CompiledObject:     best
   Install:            false
   BuildDepends:       signpost
