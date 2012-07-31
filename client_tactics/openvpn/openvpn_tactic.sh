@@ -22,7 +22,7 @@ if [ ! -e $dst_dir ]; then
   mkdir $dst_dir
 fi
 
-openssl genrsa -out $dst_dir/vpn.pem 2048
+openssl genrsa -out $dst_dir/vpn.pem 512
 
 # self sign key
 crypto-convert \
