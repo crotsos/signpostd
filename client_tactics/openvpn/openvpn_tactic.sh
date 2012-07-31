@@ -25,7 +25,7 @@ fi
 openssl genrsa -out $dst_dir/vpn.pem 2048
 
 # self sign key
-/usr/local/bin/crypto-convert \
+crypto-convert \
   -k $conf_dir/signpost.pem \
   -t PEM_PRIV \
   -p $conf_dir/signpost.pem  \
@@ -37,7 +37,7 @@ openssl genrsa -out $dst_dir/vpn.pem 2048
   -K $dst_dir/tmp.crt
 
 # sign the vpn key
-/usr/local/bin/crypto-convert \
+crypto-convert \
   -k $dst_dir/vpn.pem \
   -t PEM_PRIV \
   -p $conf_dir/signpost.pem  \
@@ -49,7 +49,7 @@ openssl genrsa -out $dst_dir/vpn.pem 2048
   -K $dst_dir/vpn.crt
 
 # sign the remote domain certificate
-/usr/local/bin/crypto-convert \
+crypto-convert \
   -k $remote_host \
   -t DNS_PUB \
   -p $conf_dir/signpost.pem  \
