@@ -11,7 +11,8 @@ setup.data: setup.bin
 	./setup.bin -configure
 
 build: setup.data setup.bin
-	./setup.bin -build
+	ocamlbuild lib/server.byte
+	ocamlbuild lib/client.byte
 
 doc: setup.data setup.bin
 	./setup.bin -doc
