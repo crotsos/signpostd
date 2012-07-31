@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
+open Dns.Operators
 open Lwt
 open Printf
 open Int64
@@ -80,6 +80,20 @@ let forward_dns_query_to_ns packet _ =
   in
   return (Some q_reply)
 
+let sp_gethostbyname name =
+  DP.(
+    let domain = Dns.Name.string_to_domain_name name in
+    lwt r = Dns_resolver.resolve ~server:Config.external_ip ~dns_port:Config.dns_port
+              ~q_class:Q_IN ~q_type:Q_A domain in
+       return (r.answers ||> (fun x -> match x.rdata with
+                                | DP.A ip -> Some ip
+                                | _ -> None
+       )
+        |> List.fold_left (fun a -> function Some x -> x :: a | None -> a) []
+        |> List.rev
+       ))
+
+
 let forward_dns_query_to_sp _ q = 
   let module DP = Dns.Packet in
   let module DQ = Dns.Query in
@@ -92,7 +106,7 @@ let forward_dns_query_to_sp _ q =
       Dns_resolver.gethostbyname
         ~server:Config.external_ip ~dns_port:Config.dns_port host
  *)
-    Dns_resolver.gethostbyname host
+    sp_gethostbyname host
   in
   match src_ip with
     | [] ->
