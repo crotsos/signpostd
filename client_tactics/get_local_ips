@@ -22,6 +22,7 @@ function main {
   strip_addr |
   get_ipv4_addresses |
   exclude_local_addresses |
+  exclude_hamachi_address |
   exclude_signalling_channel_range |
   xargs
 }
@@ -47,6 +48,10 @@ function get_ipv4_addresses {
 
 function exclude_local_addresses {
   grep -v -E "(127\.0)"
+}
+
+function exclude_hamachi_addresses {
+  grep -v -E "(5\.0)"
 }
 
 function exclude_signalling_channel_range {
