@@ -51,7 +51,7 @@ function exclude_local_addresses {
 }
 
 function exclude_hamachi_addresses {
-  grep -v -E "(5\.0)"
+  grep -v -E "^5\."
 }
 
 function exclude_signalling_channel_range {
