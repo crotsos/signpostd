@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: d76d2a587a310df74b860def5d76004d)
+# DO NOT EDIT (digest: 5526a7a1c60a6e71195925e00ed0a7eb)
 # Ignore VCS directories, you can use the same kind of rule outside 
 # OASIS_START/STOP if you want to exclude directories that contains 
 # useless stuff for the build process
@@ -16,33 +16,33 @@
 # Library signpost
 "lib/signpost.cmxs": use_signpost
 # Executable server
-"lib/server.byte": use_signpost
-"lib/server.byte": pkg_dns
-"lib/server.byte": pkg_dns.server
-"lib/server.byte": pkg_ocamlgraph
-"lib/server.byte": pkg_lwt.syntax
-"lib/server.byte": pkg_lwt
-"lib/server.byte": pkg_re
-"lib/server.byte": pkg_lwt.unix
-"lib/server.byte": pkg_uri
-"lib/server.byte": pkg_re.str
-"lib/server.byte": pkg_openflow
-"lib/server.byte": pkg_crypto_keys
-"lib/server.byte": pkg_bitstring
+<lib/server.{native,byte}>: use_signpost
+<lib/server.{native,byte}>: pkg_dns
+<lib/server.{native,byte}>: pkg_dns.server
+<lib/server.{native,byte}>: pkg_ocamlgraph
+<lib/server.{native,byte}>: pkg_lwt.syntax
+<lib/server.{native,byte}>: pkg_lwt
+<lib/server.{native,byte}>: pkg_re
+<lib/server.{native,byte}>: pkg_lwt.unix
+<lib/server.{native,byte}>: pkg_uri
+<lib/server.{native,byte}>: pkg_re.str
+<lib/server.{native,byte}>: pkg_openflow
+<lib/server.{native,byte}>: pkg_crypto_keys
+<lib/server.{native,byte}>: pkg_bitstring
 <lib/*.ml{,i}>: pkg_ocamlgraph
 # Executable client
-"lib/client.byte": use_signpost
-"lib/client.byte": pkg_dns
-"lib/client.byte": pkg_dns.server
-"lib/client.byte": pkg_lwt.syntax
-"lib/client.byte": pkg_lwt
-"lib/client.byte": pkg_re
-"lib/client.byte": pkg_lwt.unix
-"lib/client.byte": pkg_uri
-"lib/client.byte": pkg_re.str
-"lib/client.byte": pkg_openflow
-"lib/client.byte": pkg_crypto_keys
-"lib/client.byte": pkg_bitstring
+<lib/client.{native,byte}>: use_signpost
+<lib/client.{native,byte}>: pkg_dns
+<lib/client.{native,byte}>: pkg_dns.server
+<lib/client.{native,byte}>: pkg_lwt.syntax
+<lib/client.{native,byte}>: pkg_lwt
+<lib/client.{native,byte}>: pkg_re
+<lib/client.{native,byte}>: pkg_lwt.unix
+<lib/client.{native,byte}>: pkg_uri
+<lib/client.{native,byte}>: pkg_re.str
+<lib/client.{native,byte}>: pkg_openflow
+<lib/client.{native,byte}>: pkg_crypto_keys
+<lib/client.{native,byte}>: pkg_bitstring
 <lib/*.ml{,i}>: pkg_dns
 <lib/*.ml{,i}>: pkg_dns.server
 # Executable send_cmd
