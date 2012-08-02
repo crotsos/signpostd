@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
+open Lwt_unix
 open Lwt
 open Printf
 open Int64
@@ -34,9 +34,32 @@ let execute_tactic cmd arg_list =
   pread ~timeout:120.0 cmd >>= fun value ->
   return (Sp.ResponseValue value)
 
+let connect_client ip port =
+  try_lwt 
+    let client_sock = socket PF_INET SOCK_STREAM 0 in
+    let hentry = Unix.inet_addr_of_string ip in
+    lwt _ = 
+       (Lwt_unix.sleep 4.0 >|= (fun _ -> failwith("Can't connect")) ) <?> 
+            Lwt_unix.connect client_sock(ADDR_INET(hentry, port)) in 
+    let ADDR_INET(loc_ip,loc_port) = Lwt_unix.getsockname client_sock in
+    let pkt_bitstring = BITSTRING {
+        (Uri_IP.string_to_ipv4 (Unix.string_of_inet_addr loc_ip)):32;
+        loc_port:16; (String.length (Nodes.get_local_name ())):16;
+        (Nodes.get_local_name ()):-1:string} in 
+    let pkt = Bitstring.string_of_bitstring pkt_bitstring in 
+    lwt _ = Lwt_unix.send client_sock pkt 0 (String.length pkt) [] in 
+        Lwt_unix.shutdown client_sock SHUTDOWN_ALL; 
+        return true
+  with exn ->
+    eprintf "[natpanch] tcp client error:%s\n%!" (Printexc.to_string exn);
+    return false
+
 let handle_request fd ip command arg_list =
   match command with
-
+  | Command("test_nat") ->
+      let ip::port::_ = arg_list in
+      lwt res = connect_client ip (int_of_string port) in 
+        return (Sp.ResponseValue (string_of_bool res))
   | Command(command_name) -> 
       eprintf "REQUEST %s with args %s\n%!" 
           command_name (String.concat ", " arg_list);
