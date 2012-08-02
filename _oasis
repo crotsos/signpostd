@@ -18,7 +18,7 @@ Executable server
   Path:               lib
   MainIs:             server.ml
   Custom:             false
-  CompiledObject:     byte
+  CompiledObject:     best
   Install:            false
   BuildDepends:       signpost, ocamlgraph, dns, dns.server
 
@@ -26,7 +26,7 @@ Executable client
   Path:               lib
   MainIs:             client.ml
   Custom:             false
-  CompiledObject:     byte
+  CompiledObject:     best
   Install:            false
   BuildDepends:       signpost, dns, dns.server
 
