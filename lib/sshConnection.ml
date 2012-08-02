@@ -237,7 +237,7 @@ let start_local_server conn a b =
     let dev_id = Tap.get_new_dev_ip () in  
     let host = sprintf "%s.d%d.%s" host Config.signpost_number
                  Config.domain in
-    let _ = Ssh.Manager.server_add_client conn.conn_id host 0l in
+    let _ = Ssh.Manager.server_add_client conn.conn_id host 0l dev_id in
       dev_id
   in
   let connect_client loc_node rem_dev =
