@@ -20,6 +20,8 @@ type sp_msg = {
   cmd : Rpc.t option;
 }
 
+val echo_port: int64
+
 module type HandlerSig = sig
   val handle_request : Lwt_unix.file_descr -> int32 ->  Rpc.command ->
     Rpc.arg list -> Sp.request_response Lwt.t

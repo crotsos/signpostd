@@ -27,6 +27,8 @@ type sp_msg = {
   cmd : Rpc.t option;
 }
 
+let echo_port = 11000L 
+
 module type HandlerSig = sig
   val handle_request : Lwt_unix.file_descr -> int32 -> Rpc.command -> 
     Rpc.arg list -> Sp.request_response Lwt.t
@@ -144,8 +146,46 @@ module Make (Handler : HandlerSig) = struct
       running := false;
       return ()
 
+  let echo_testing_server listen_port =
+    lwt server_sock = bind_fd ~address:"0.0.0.0" ~port:listen_port in 
+    (* accept and process connections *)
+    while_lwt true do
+      try_lwt
+        lwt (client_sock, client_addr) = Lwt_unix.accept server_sock in
+        let  Unix.ADDR_INET(ip, port) = client_addr in 
+        let ip = (Uri_IP.string_to_ipv4 (Unix.string_of_inet_addr ip)) in
+        let rcv_buf = String.create 2048 in 
+        lwt recvlen = Lwt_unix.recv client_sock rcv_buf 0 1048 [] in
+        let buf = Bitstring.bitstring_of_string 
+                    (String.sub rcv_buf 0 recvlen) in 
+        bitmatch buf with 
+          | {loc_ip:32; loc_port:16; 
+             name_len:16; name:(name_len*8):string} ->
+            (printf "received %s from %s:%d external %s:%d\n%!"
+              name (Uri_IP.ipv4_to_string loc_ip) loc_port 
+              (Uri_IP.ipv4_to_string ip) port;
+            Nodes.add_public_ip name (Uri_IP.ipv4_to_string ip) (loc_ip = ip) 
+              (loc_port = port); 
+            let reply = BITSTRING{ip:32; port:16; name_len:16;
+                                  name:(name_len*8):string} in 
+            let reply_str = Bitstring.string_of_bitstring reply in 
+              lwt _ = Lwt_unix.send client_sock reply_str 0 
+                        (String.length reply_str) [] in 
+            
+              return (Lwt_unix.shutdown client_sock Lwt_unix.SHUTDOWN_ALL))
+    (*     let x = send client_sock str 0 len [] in *)
+          | {_} ->
+              printf "[echo_server] failed to parse packet\n%!";
+              return (Lwt_unix.shutdown client_sock Lwt_unix.SHUTDOWN_ALL)
+      with exn -> 
+        Printf.eprintf "[echo_server]daemon error: %s\n%!" 
+          (Printexc.to_string exn);
+        return ()
+    done
+
   let thread_server ~address ~port =
     (* Listen for UDP packets *)
+    lwt _ = echo_testing_server echo_port in
     lwt fd = bind_fd ~address ~port in
     while_lwt true do 
       lwt (sock, dst) = Lwt_unix.accept fd in
