@@ -10,13 +10,14 @@ fi
 IP_RANGE=`cat lib/config.ml | grep ip_slash_24 |  tail -1 | awk '{print $4}' | sed 's/"//g'`
 NUM=`cat lib/config.ml | grep signpost_number |  tail -1 | awk '{print $4}'`
 DOMAIN=`cat lib/config.ml | grep domain | tail -1 | awk '{print $4}' | sed 's/"//g'`
+NS=`cat lib/config.ml | grep external_ip | awk '{print $4}' | sed 's/"//g'`
 
 cd ${d}
 PASS=`cat PASSWD`
 if [ "`ps -e | grep iodined | wc -l `" -eq 0 ]; then
   echo "Setting up iodined"
   echo iodined -n 23.23.179.30  -F /tmp/iodine.pid -P "${PASS}" -c -b 5354 "${IP_RANGE}1/24" i.d$NUM.$DOMAIN;
-  iodined -n 23.23.179.30  -F /tmp/iodine.pid -P "${PASS}" -c -b 5354 "${IP_RANGE}1/24" i.d$NUM.$DOMAIN;
+  iodined -n $NS -F /tmp/iodine.pid -P "${PASS}" -c -b 5354 "${IP_RANGE}1/24" i.d$NUM.$DOMAIN;
 fi
 
 # clean up ports from openvswitch switch
@@ -28,6 +29,8 @@ ovs-dpctl show br0 | grep tap | awk '{print $3}' \
 # clean up ip addresses from bridge interface
 ip addr show  dev br0 | grep 10\\.\[23\]\\. | awk '{print $2;}' |\
   xargs -I '{}'  ip addr del  '{}' dev br0
+ip addr show  dev br0 | grep 172\\.31\\. | awk '{print $2;}' |\
+  xargs -I '{}'  ip addr del  '{}' dev br0
 
 # cleaning default links for sp addresses
 route -n | grep 172\\.31\\.  | awk '{print $1" gw "$2;}' \
@@ -38,5 +41,8 @@ route -n | grep 10\\.\[23\]\\. | awk '{print $1" netmask "$3" gw "$2;}' \
     | xargs -I '{}' echo route del -net '{}' >> /tmp/sp_route_cleanup.sh
 sh /tmp/sp_route_cleanup.sh
 
+
+ovs-ofctl del-flows br0
+ovs-ofctl add-flow br0 hard_timeout=7200,priority=1,action=NORMAL
 
 ../_build/lib/server.byte
