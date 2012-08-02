@@ -44,8 +44,10 @@ val set_signalling_channel : Sp.name -> Lwt_unix.file_descr -> unit
 val set_server_signalling_channel : Lwt_unix.file_descr -> unit
 val set_local_ips : Sp.name -> Sp.ip list -> unit
 val discover_local_ips : ?dev:string -> unit -> Sp.ip list
-val check_for_publicly_accessible_ips : Sp.name -> Sp.ip list -> Sp.ip list Lwt.t
+(* val check_for_publicly_accessible_ips : Sp.name -> Sp.ip list -> Sp.ip list
+ * Lwt.t *)
 val get_local_ips : Sp.name -> Sp.ip list
+val add_public_ip: string-> string -> bool -> bool -> unit
 (* val get_node_ip : Sp.name -> int32 *)
 val get_local_name : unit -> string
 val set_local_name : string -> unit

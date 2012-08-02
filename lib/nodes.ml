@@ -1,4 +1,4 @@
-(*
+            (*
  * Copyright (c) 2012 Sebastian Probst Eide <sebastian.probst.eide@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -29,8 +29,6 @@ exception InconsistentState of string
 let sp_ip_network = "172.31.0.0"
 let sp_ip_netmask = 16
 
-
-
 (* Nodes have a lot of associated information.
  * It is all part of the node store.
  *)
@@ -39,7 +37,7 @@ type node = {
   name: Sp.name;
   mutable mac: string;
   local_ips: Sp.ip list;
-  public_ips : Sp.ip list;
+  public_ips : (Sp.ip, bool * bool) Hashtbl.t;
   sp_ip : int32;
 }
 
@@ -73,7 +71,7 @@ let new_node_with_name name ?(ips=[]) ?(public_ips=[]) () = {
   name = name;
   signalling_channel = Sp.NoSignallingChannel;
   local_ips = ips;
-  public_ips = [];
+  public_ips = (Hashtbl.create 1);
   mac = "\xfe\xff\xff\xff\xff\xff";
   sp_ip = (find_free_ip ());
 }
@@ -259,6 +257,14 @@ let discover_local_ips ?(dev="") () =
   in
   ips 
 
+let add_public_ip name ip is_nattted is_random = 
+  try
+    let node = Hashtbl.find node_db.nodes name in
+      Hashtbl.replace node.public_ips ip (is_nattted, is_random)
+  with Not_found ->
+    eprintf  "Cannot find node %s\n%!" name;
+  ()
+
 (* in int32 format for dns. default to 0.0.0.0 *)
 let convert_ip_string_to_int ip_string =
   let ipv4_addr_of_tuple (a,b,c,d) =
@@ -285,7 +291,7 @@ let get_node_ip name =
   with Not_found -> 0l
  *)
 
-let check_for_publicly_accessible_ips name ips =
+(*let check_for_publicly_accessible_ips name ips =
   let token = "hi_from_server" in
   let listen_port = 30000 + (Random.int 20000) in
   let list_of_ips_from_string ip_str =
@@ -326,6 +332,6 @@ let check_for_publicly_accessible_ips name ips =
   in
   let fn_list = [listen_for_datagrams; send_datagrams] in
   lwt ip_list :: _ = Lwt_list.map_p (fun f -> f ()) fn_list in
-  return ip_list
+  return ip_list *)
 
 (* ---------------------------------------------------------------------- *)
