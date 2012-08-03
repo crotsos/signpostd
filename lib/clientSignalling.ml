@@ -79,7 +79,8 @@ let handle_request fd ip command arg_list =
 let handle_notification fd ip command arg_list =
   match command with
   | Command("setup_sp_ip") -> 
-      let ip = List.hd arg_list in 
+      let ip = List.hd arg_list in
+      let _ = Nodes.set_local_sp_ip (Uri_IP.string_to_ipv4 ip) in
       let gw_ip = ipv4_to_string 
                     (Int32.add (string_to_ipv4 ip) 1l) in 
       lwt _ = Lwt_unix.system 
