@@ -82,7 +82,8 @@ let test a b =
       let external_ip = List.hd (Nodes.get_public_ips b) in
       let rpc = (Rpc.create_tactic_request "natpanch" Rpc.TEST "client_test" 
                  [(List.hd (Nodes.get_public_ips b)); 
-                  (Int64.to_string SignalHandler.echo_port); b;]) in
+                  (Int64.to_string SignalHandler.echo_port); b; 
+                  (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b));]) in
       lwt res = Nodes.send_blocking a rpc in
         return (bool_of_string res)
      with exn ->
