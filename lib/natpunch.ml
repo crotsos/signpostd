@@ -233,6 +233,7 @@ module Manager = struct
   let test kind args =
     match kind with 
       | "client_test" -> (
+        try_lwt
           let ip :: port :: node :: sp_ip ::  _ = args in
           let ip = Uri_IP.string_to_ipv4 ip in
           let sp_ip = Uri_IP.string_to_ipv4 sp_ip in
@@ -240,7 +241,10 @@ module Manager = struct
           let _ = register_dst node ip sp_ip  0 in 
           lwt res = connect_client (Uri_IP.ipv4_to_string sp_ip) port in
           let _ = unregister_dst node ip sp_ip in  
-            return(string_of_bool res))
+            return(string_of_bool res)
+        with exn ->
+          raise (NatpunchError((sprintf "[natpanch] error %s" (Printexc.to_string exn))) )
+        )
       | _ ->
           raise (NatpunchError((sprintf "[natpanch] invalid test action %s" kind)) )
 
