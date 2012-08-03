@@ -116,10 +116,10 @@ let test a b =
       lwt _ = (Nodes.send_blocking a rpc) in 
   
       (* Avoid testing my self for open connections *)
-      let not_ips =  Nodes.get_local_ips b in
+      let not_ips =  (Nodes.get_local_ips b) in
       let ips = List.filter (fun a -> 
                                not (List.mem a not_ips) ) 
-                  (Nodes.get_local_ips a) in  
+                  [(Nodes.get_local_ips a) @ (Nodes.get_remote_ips b)] in  
       
       lwt res = Nodes.send_blocking b (Rpc.create_tactic_request "ssh" 
         Rpc.TEST "client" ([(string_of_int ssh_port)] @ ips))  in
