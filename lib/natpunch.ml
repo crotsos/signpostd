@@ -36,26 +36,49 @@ module Manager = struct
   (*********************************************************
    *                  Tactic state
    *********************************************************)
+  (* local state of the tactic*)
+  type conn_type = {
+    name: string;
+    public_ip: int32;
+    sp_ip: int32;
+    conn_id: int;
+  }
+
+  (*
+   * State requireed to map appropriately signpost ip and ports to 
+   * natpancj state  *)
   type natpanch_state_type = {
-    (* store local ip to signpost node names for 
-     * the notification process *)
-    map_ip_node : (int32, string) Hashtbl.t;
-    (* translate signpost local to global ips
-     * *)
-    map_ip_ip : (int32, int32) Hashtbl.t;
+    (* Map an outging port to an outgoing ip? *)
     map_port_ip : (int, int32) Hashtbl.t;
+    (* storing with whom I am connected *)
+    conns : (string, conn_type) Hashtbl.t;
   }
 
   let natpanch_state = {
-    map_ip_node=(Hashtbl.create 1000);
     map_port_ip=(Hashtbl.create 1000);
-    map_ip_ip=(Hashtbl.create 1000);
+    conns = (Hashtbl.create 64);
   }
+
+  let node_of_sp_ip sp_ip = 
+    let res = 
+      Hashtbl.fold (fun name st ret -> 
+                      if (st.sp_ip = sp_ip) then 
+                        Some(name)
+                      else 
+                        ret ) natpanch_state.conns None 
+    in
+      match (res) with
+        |Some(name) -> name
+        |None -> raise Not_found
 
   (**********************************************************
    *                  Init methods
    **********************************************************)
 
+  (*
+   * TODO: this event should be implemented at some point in order to clear any
+   * pending state in the system os. 
+   * *)
   let init_module () = 
     return ()
 
@@ -63,12 +86,13 @@ module Manager = struct
     init_module ()
 
 (*
- * Connection Methods
+ * Openflow message control
  * *)
+
   let filter_incoming_rst_packet controller dpid evt =
     try_lwt
       let (pkt, port, buffer_id) = match evt with 
-        | OC.Event.Packet_in(port, buffer_id, pkt, dpid) ->
+        | OC.Event.Packet_in(port, buffer_id, pkt, _) ->
                 (pkt,port,buffer_id)
         | _ -> ep "Unknown event";failwith "Invalid of action"
       in
@@ -79,10 +103,12 @@ module Manager = struct
         match flags.Tcp.rst with 
           | true -> return ()
           | false -> (
-              let nw_src = Hashtbl.find natpanch_state.map_port_ip 
-                             m.OP.Match.tp_dst in
+              let node = Hashtbl.find natpanch_state.conns (node_of_sp_ip 
+                    m.OP.Match.nw_dst) in 
                  let actions = [
-                   OP.Flow.Set_nw_src(nw_src);
+                   OP.Flow.Set_dl_src("\xfe\xff\xff\xff\xff\xff");
+                   OP.Flow.Set_nw_dst((Nodes.get_local_sp_ip ())); 
+                   OP.Flow.Set_nw_dst(node.sp_ip);
                    OP.Flow.Output(OP.Port.Local, 2000);] in
                  let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
                              ~buffer_id:(Int32.to_int buffer_id) 
@@ -93,42 +119,46 @@ module Manager = struct
       ep "[natpanch] Error: %s\n%!" (Printexc.to_string exn);
       return ()
 
-
   let handle_outgoing_syn_packet controller dpid evt =
     pp "[natpanch] received syn packet\n%!";
     try_lwt
       let (pkt, port, buffer_id) = match evt with 
-        | OC.Event.Packet_in(port, buffer_id, pkt, dpid) ->
+        | OC.Event.Packet_in(port, buffer_id, pkt, _) ->
                 (pkt,port,buffer_id)
         | _ -> ep "Unknown event";failwith "Invalid of action"
       in
       let flow = OP.Match.parse_from_raw_packet port pkt in
       let isn = Tcp.get_tcp_sn pkt in
-      let node = Hashtbl.find natpanch_state.map_ip_node 
-                    flow.OP.Match.nw_dst in  
+
+      (* map to remote ip address. If no ip address was found simply
+       * disregard the packet *)
+      let node = Hashtbl.find natpanch_state.conns (node_of_sp_ip 
+                    flow.OP.Match.nw_dst) in 
 
       (* TODO: dest port should be discovered from state *)
       let Some(port) = Net_cache.Port_cache.dev_to_port_id 
                          Config.net_intf in 
       
-      (* map to remote ip address. If no ip address was found simply
-       * disregard the packet *)
-      let nw_dst = Hashtbl.find natpanch_state.map_ip_ip 
-                     flow.OP.Match.nw_dst in
+      (*
+       * setup icoming flow before any packets arrive
+       * *)
+      let nw_dst = node.public_ip in
+      let local_ip = Net_cache.Routing.get_next_hop_local_ip node.public_ip in 
       let m = OP.Match.(
         {wildcards=(OP.Wildcards.exact_match); 
          in_port=(OP.Port.port_of_int port); 
          dl_vlan=0xffff; dl_vlan_pcp=(char_of_int 0); 
          dl_type=0x0800; nw_tos=(char_of_int 0); 
          dl_src=flow.OP.Match.dl_dst; dl_dst=flow.OP.Match.dl_src;
-         nw_src=nw_dst; nw_dst=flow.OP.Match.nw_src; 
+         nw_src=nw_dst; nw_dst=local_ip; 
          tp_src=flow.OP.Match.tp_dst;
          tp_dst=flow.OP.Match.tp_src; nw_proto=(char_of_int 6); }) in
         Sp_controller.register_handler m filter_incoming_rst_packet;     
 
        (* configure outgoing flow *)
         let actions = [
-        OP.Flow.Set_nw_dst(nw_dst);
+        OP.Flow.Set_nw_dst(node.public_ip);
+        OP.Flow.Set_nw_src(local_ip);
         OP.Flow.Output((OP.Port.port_of_int port), 2000);] in
       let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
                   ~buffer_id:(Int32.to_int buffer_id) actions () in 
@@ -141,113 +171,16 @@ module Manager = struct
         let rpc =
           (Rpc.create_tactic_notification "natpanch" Rpc.CONNECT 
              "server_connect" 
-             [node;(Nodes.get_local_name ()); 
+             [node.name;(Nodes.get_local_name ()); 
               (Uri_IP.ipv4_to_string m.OP.Match.nw_src);
               (string_of_int m.OP.Match.tp_src); 
               (string_of_int m.OP.Match.tp_dst);
               (Int32.to_string isn);]) in
           Nodes.send_to_server rpc
-    with exn ->
-      ep "[natpanch] Error: %s\n%!" (Printexc.to_string exn);
-      return ()
-
-  let register_dst a external_ip ip =
-    Hashtbl.replace natpanch_state.map_ip_node (Uri_IP.string_to_ipv4 ip) a;
-    Hashtbl.replace natpanch_state.map_ip_ip (Uri_IP.string_to_ipv4 ip)
-      (Uri_IP.string_to_ipv4 external_ip); 
-    let flow_wild = OP.Wildcards.({
-      in_port=true; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=false; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match flow_wild ~dl_type:(0x0800)
-                 ~nw_proto:(char_of_int 6)  
-                ~nw_dst:(Uri_IP.string_to_ipv4 ip) () in
-      Sp_controller.register_handler flow handle_outgoing_syn_packet
-
-
-
-  let l2_l3_addressing src_ip = 
-    (* Address lookup *)
-    let local_ips = Nodes.discover_local_ips () in  
-    let (_, local_gw, dev) = Net_cache.Routing.get_next_hop src_ip in 
-    let (mask, _, _) = Net_cache.Routing.get_next_hop local_gw in 
-    let local_ip = 
-      List.find 
-        (fun ip ->
-           let (test_mask, _, _) = 
-             Net_cache.Routing.get_next_hop ip in
-             test_mask = mask) 
-        (List.map Uri_IP.string_to_ipv4 local_ips) in 
-    let Some(src_mac) = (Net_cache.Arp_cache.get_next_hop_mac src_ip) in
-    let Some(dst_mac) = (Net_cache.Arp_cache.get_next_hop_mac local_ip) in 
-      (*TODO port should be discovered automatically *)
-      let Some(port) = Net_cache.Port_cache.dev_to_port_id 
-                         Config.net_intf in 
-      let port = OP.Port.port_of_int port in      
-        (src_mac, dst_mac, src_ip, local_ip, port)
-
-  let connect kind args =
-    match kind with
-      | "register_host" ->
-          (try_lwt
-            let node::dst_ip::args = args in
-              List.iter (register_dst node dst_ip) args; 
-              return ("127.0.0.1")
-          with  exn ->
-            pp "[natpunch] error %s\n%!" (Printexc.to_string exn);
-            return ("127.0.0.1"))
-    | "server_connect" ->(
-        try_lwt
-          (* gathering all the important header fields *)
-          let src_ip :: dst_port :: src_port :: isn :: _ = args in 
-          let src_ip = Uri_IP.string_to_ipv4 src_ip in 
-          let dst_port = int_of_string dst_port in 
-          let src_port = int_of_string src_port in
-          let isn = Int32.of_string isn in
-          let controller = (List.hd 
-                  Sp_controller.switch_data.Sp_controller.of_ctrl) in 
-          let dpid = (List.hd 
-                  Sp_controller.switch_data.Sp_controller.dpid)  in          
-          let (src_mac, dst_mac, _, local_ip, port) = 
-            l2_l3_addressing src_ip in
-      
-          (* create packet and send it over the openflow control
-           * channel *)
-          let pkt = Tcp.gen_tcp_syn isn src_mac dst_mac src_ip
-                      local_ip src_port dst_port 0x3000 in 
-          let bs = (OP.Packet_out.packet_out_to_bitstring 
-                      (OP.Packet_out.create ~buffer_id:(-1l)
-                      ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
-                      ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
-          lwt _ = OC.send_of_data controller dpid bs in
-
-          let m = OP.Match.parse_from_raw_packet port pkt in
-      
-          (* Install appropriate flows to do processing in fast path*)
-          let actions = [OP.Flow.Output((OP.Port.Local), 2000);] in
-          let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD
-                      ~buffer_id:(-1) actions () in
-          let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
-          lwt _ = OC.send_of_data controller dpid bs in
-
-          let actions = [OP.Flow.Output(port, 2000);] in
-          let m = OP.Match.(
-            {wildcards=(OP.Wildcards.exact_match); in_port=OP.Port.Local;
-             dl_src=m.OP.Match.dl_dst; dl_dst=m.OP.Match.dl_src;
-             dl_vlan=0xffff;dl_vlan_pcp=(char_of_int 0);dl_type=0x0800; 
-             nw_src=m.OP.Match.nw_dst; nw_dst=m.OP.Match.nw_src;
-             nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
-             tp_src=m.OP.Match.tp_dst; tp_dst=m.OP.Match.tp_src}) in
-          let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
-          lwt _ = OC.send_of_data controller dpid bs in
-            return ("0.0.0.0")
-        with exn ->
-          let err = Printexc.to_string exn in
-          pp "[natpunch] error %s\n%!" err;
-          raise (NatpunchError(err)))
-     | _ -> raise (NatpunchError((sprintf "unsupported %s" kind))) 
-
+    with 
+      | exn ->
+          ep "[natpanch] Error: %s\n%!" (Printexc.to_string exn);
+          return ()
 
 
 (*********************************************************
@@ -274,46 +207,144 @@ module Manager = struct
       ep "[natpanch] tcp client error:%s\n%!" (Printexc.to_string exn);
       return false
 
-  let unregister_dst a external_ip ip =
-    let ip = Uri_IP.string_to_ipv4 ip in
-      Hashtbl.remove natpanch_state.map_ip_node ip;
-      Hashtbl.remove natpanch_state.map_ip_ip ip; 
+  let register_dst a public_ip sp_ip conn_id =
+    Hashtbl.replace natpanch_state.conns a {name=a; public_ip; sp_ip;conn_id;};
+    let flow_wild = OP.Wildcards.({
+      in_port=true; dl_vlan=true; dl_src=true; dl_dst=true;
+      dl_type=false; nw_proto=false; tp_dst=true; tp_src=true;
+      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
+      dl_vlan_pcp=true; nw_tos=true;}) in
+    let flow = OP.Match.create_flow_match flow_wild ~dl_type:(0x0800)
+                 ~nw_proto:(char_of_int 6)  
+                ~nw_dst:(sp_ip) () in
+      Sp_controller.register_handler flow handle_outgoing_syn_packet
+
+  let unregister_dst a _ sp_ip =
+    let _ = Hashtbl.remove natpanch_state.conns a in
       let flow_wild = OP.Wildcards.({
         in_port=true; dl_vlan=true; dl_src=true; dl_dst=true;
         dl_type=false; nw_proto=false; tp_dst=true; tp_src=true;
         nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
         dl_vlan_pcp=true; nw_tos=true;}) in
       let flow = OP.Match.create_flow_match flow_wild ~dl_type:(0x0800)
-                   ~nw_proto:(char_of_int 6)  ~nw_dst:ip () in
+                   ~nw_proto:(char_of_int 6)  ~nw_dst:sp_ip () in
         Sp_controller.unregister_handler flow handle_outgoing_syn_packet
 
   let test kind args =
     match kind with 
-      | "client_connect" -> (
-          try_lwt
-            let ip :: port :: _ = args in 
-            let port = int_of_string port in
-            lwt ret = connect_client ip port in 
-              return (string_of_bool ret)
-          with exn -> 
-            printf "[natpunch] error %s\n%!" (Printexc.to_string exn);
-            raise (NatpunchError(Printexc.to_string exn))) 
       | "client_test" -> (
-          let ip :: port :: node:: sp_ip :: _ = args in
+          let ip :: port :: node :: sp_ip ::  _ = args in
+          let ip = Uri_IP.string_to_ipv4 ip in
+          let sp_ip = Uri_IP.string_to_ipv4 sp_ip in
           let port = int_of_string port in
-          let _ = register_dst node ip ip in 
-          lwt res = connect_client ip port in
-          let _ = unregister_dst node ip ip in  
+          let _ = register_dst node ip sp_ip  0 in 
+          lwt res = connect_client (Uri_IP.ipv4_to_string sp_ip) port in
+          let _ = unregister_dst node ip sp_ip in  
             return(string_of_bool res))
       | _ ->
           raise (NatpunchError((sprintf "[natpanch] invalid test action %s" kind)) )
+
+(*
+ * Connect methods
+ * *)
+  let connect kind args =
+    match kind with
+      | "server_connect" ->(
+        try_lwt
+          (* gathering all the important header fields *)
+          let dst_ip :: dst_port :: src_port :: local_sp_ip :: 
+              remote_sp_ip:: isn :: _ = args in 
+          let dst_ip = Uri_IP.string_to_ipv4 dst_ip in 
+          let dst_port = int_of_string dst_port in 
+          let src_port = int_of_string src_port in
+          let local_sp_ip = Uri_IP.string_to_ipv4 local_sp_ip in
+          let remote_sp_ip = Uri_IP.string_to_ipv4 remote_sp_ip in
+          let isn = Int32.of_string isn in
+          let controller = (List.hd 
+                  Sp_controller.switch_data.Sp_controller.of_ctrl) in 
+          let dpid = (List.hd 
+                  Sp_controller.switch_data.Sp_controller.dpid)  in          
+          
+          let local_ip = Net_cache.Routing.get_next_hop_local_ip dst_ip in 
+          let Some(local_mac) = (Net_cache.Arp_cache.mac_of_ip local_ip) in 
+          let Some(gw_mac) = (Net_cache.Arp_cache.get_next_hop_mac dst_ip) in 
+          
+          (* let (src_mac, dst_mac, _, local_ip, port) = 
+            l2_l3_addressing dst_ip in *)
+      
+          (* create packet and send it over the openflow control
+           * channel *)
+          let pkt = Tcp.gen_tcp_syn isn "\xfe\xff\xff\xff\xff\xff" 
+                      local_mac remote_sp_ip local_sp_ip
+                      src_port dst_port 0x3000 in 
+          let bs = (OP.Packet_out.packet_out_to_bitstring 
+                      (OP.Packet_out.create ~buffer_id:(-1l)
+                      ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
+                      ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
+          lwt _ = OC.send_of_data controller dpid bs in
+
+          
+          let Some(port) = (Net_cache.Port_cache.dev_to_port_id Config.net_intf) in
+          let port = OP.Port.port_of_int port in
+          let m = OP.Match.parse_from_raw_packet port pkt in
+      
+          (* Install appropriate flows to do processing in fast path*)
+          let actions = [OP.Flow.Output((OP.Port.Local), 2000);] in
+          let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD
+                      ~buffer_id:(-1) actions () in
+          let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+          lwt _ = OC.send_of_data controller dpid bs in
+
+          let actions = [
+            OP.Flow.Set_nw_src(local_ip);
+            OP.Flow.Set_nw_dst(dst_ip);
+            OP.Flow.Set_dl_src(gw_mac);
+            OP.Flow.Output(port, 2000);] in
+          let m = OP.Match.(
+            {wildcards=(OP.Wildcards.exact_match); in_port=OP.Port.Local;
+             dl_src=m.OP.Match.dl_dst; dl_dst=m.OP.Match.dl_src;
+             dl_vlan=0xffff;dl_vlan_pcp=(char_of_int 0);dl_type=0x0800; 
+             nw_src=m.OP.Match.nw_dst; nw_dst=m.OP.Match.nw_src;
+             nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
+             tp_src=m.OP.Match.tp_dst; tp_dst=m.OP.Match.tp_src}) in
+          let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD
+                      ~buffer_id:(-1) actions () in
+          let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+          lwt _ = OC.send_of_data controller dpid bs in
+            return ("0.0.0.0")
+        with exn ->
+          let err = Printexc.to_string exn in
+          pp "[natpunch] error %s\n%!" err;
+          raise (NatpunchError(err)))      
+      | _ -> raise (NatpunchError((sprintf "unsupported connect method %s" kind))) 
+
+  let enable kind args =
+    match kind with
+      | "register_host" ->
+          (try_lwt
+            let node::public_ip::sp_ip::conn_id::_ = args in
+            let public_ip = Uri_IP.string_to_ipv4 public_ip in
+            let sp_ip = Uri_IP.string_to_ipv4 sp_ip in
+              Hashtbl.replace natpanch_state.conns  node
+                {name=node;public_ip; sp_ip; conn_id=(int_of_string conn_id);};
+              let _ = register_dst node public_ip sp_ip (int_of_string conn_id) in
+              return ("true")
+          with  exn ->
+            pp "[natpunch] error %s\n%!" (Printexc.to_string exn);
+            return ("127.0.0.1"))
+
+     | _ -> raise (NatpunchError((sprintf "unsupported %s" kind))) 
+
 
   (*
    *             TEARDOWN methods of tactic
    ************************************************************************)
 
-  let teardown _ =
-    true
+  let teardown _ _ =
+    return "true"
+
+  let disable _ _ = 
+    return "true"
 
   let pkt_in_cb _ _ _ = 
     return ()
