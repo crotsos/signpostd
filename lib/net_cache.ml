@@ -139,7 +139,7 @@ module Routing = struct
       match fib_old with
         | None -> Some(fib_new)
         | Some(fib) -> begin 
-          if( fib.mask > fib_new.mask) then
+          if( fib.mask < fib_new.mask) then
             fib_old
           else
             Some(fib_new)
@@ -236,7 +236,10 @@ module Arp_cache = struct
 
   let add_mapping mac ip = 
     (* Check if ip addr is local *)
-    let (_,gw,_) = Routing.get_next_hop ip in 
+    let (_,gw,_) = Routing.get_next_hop ip in
+      Printf.printf "next-hop for %s is %s\n"
+        (Uri_IP.ipv4_to_string ip)
+        (Uri_IP.ipv4_to_string gw);
       match gw with 
         | 0l -> (
             if (Hashtbl.mem cache ip) then 
