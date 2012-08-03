@@ -151,10 +151,18 @@ let port_status_cb _ _ evt =
 
 let req_count = (ref 0)
 
-let register_handler flow cb = 
+let register_handler flow cb =
+  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
+              ~buffer_id:(-1)
+              [OP.Flow.Output(OP.Port.Controller, 150)] () in 
+  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
     Hashtbl.replace switch_data.cb_register flow cb
 
 let unregister_handler flow_def cb = 
+  let pkt = OP.Flow_mod.create flow_def 0L OP.Flow_mod.DELETE 
+              ~buffer_id:(-1)
+              [] () in 
+  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
   let lookup_flow flow entry =
     if (OP.Match.flow_match_compare flow_def flow
            flow.OP.Match.wildcards) then 
