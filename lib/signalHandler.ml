@@ -195,6 +195,7 @@ module Make (Handler : HandlerSig) = struct
 
 let thread_client wakener_connect wakener_end ~address ~port =
     (* Listen for UDP packets *)
+  let _ = Lwt.ignore_result (echo_testing_server echo_port) in
   lwt fd = create_fd ~address ~port in
     lwt src = try_lwt
       let hent = Unix.gethostbyname address in
