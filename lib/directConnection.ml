@@ -88,7 +88,7 @@ let test a b =
     try_lwt 
       let not_ips =  Nodes.get_local_ips b in
       let ips = List.filter (fun a -> not (List.mem a not_ips) ) 
-                  (Nodes.get_local_ips a) in  
+                  ((Nodes.get_local_ips a) @(Nodes.get_public_ips b)) in  
 
       lwt ret = 
         Nodes.send_blocking b (Rpc.create_tactic_request "direct" 
