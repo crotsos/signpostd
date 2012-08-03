@@ -182,7 +182,7 @@ let signal_t  wakener_connect wakener_end ~port =
 
 let _ =
   (try node_name := Sys.argv.(1) with _ -> usage ());
-
+   Lwt_engine.set (new Lwt_engine.select);
   Nodes.set_local_name !node_name;
   (try node_ip := Sys.argv.(2) with _ -> usage ());
   (try node_port := (of_int (int_of_string Sys.argv.(3))) with _ -> usage ());
