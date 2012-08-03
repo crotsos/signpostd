@@ -30,6 +30,7 @@ module Routing = struct
     ip: int32;
     mask : int32;
     gw : int32;
+    local_ip : int32; 
     (* this is a bit useless, as the device will usually be br0 *)
     dev_id : string;
   }
@@ -54,13 +55,15 @@ module Routing = struct
     in
       string_rev str ret (len-1) (len-2)
 
+  let match_ip_fib fib ip = 
+    (Int32.logand fib.ip fib.mask) = 
+      (Int32.logand ip fib.mask)
+
   let load_routing_table () =
-    let pat = Re_str.regexp route_regexp in 
-    let route = open_in "/proc/net/route" in
+    let pat = Re_str.regexp route_regexp in
     let rec load_routing route = 
       try 
         let entry = input_line route in
-        let _ =
           if (Re_str.string_match pat entry 0 ) then (
             let dev_id = Re_str.matched_group 1 entry in 
             let ip = Int32.of_string ("0x"^(String.lowercase 
@@ -69,59 +72,102 @@ module Routing = struct
                     (string_rev (Re_str.matched_group 3 entry)))) in 
             let mask = Int32.of_string ("0x"^( String.lowercase 
                         (string_rev (Re_str.matched_group 8 entry)))) in 
-            let fib = {ip;mask;gw;dev_id;} in
-              routing_tbl.tbl <- routing_tbl.tbl @ [fib]
-(*               Printf.printf "reading dev:%s net:%lx gw:%lx mask:%lx\n%!"
- *               dev_id ip gw mask *)
+              [{ip;mask;gw;dev_id;local_ip=0l;}] @ (load_routing route)
           ) else (
-            Printf.printf "Failed to match entry\n%!"
+            Printf.printf "Failed to match entry\n%!";
+            load_routing route
           )
-        in
-          load_routing route
-      with End_of_file -> ()
+      with End_of_file -> []
     in 
     (* SKip first line as this is the header *)
+    let route = open_in "/proc/net/route" in
     let _ = input_line route in 
-    let _ = load_routing route in 
+    let init_fib = load_routing route in 
     let _ = close_in_noerr route in 
-    return ()
+    let local_ips = List.map Uri_IP.string_to_ipv4 (Nodes.discover_local_ips ()) in
+    let rec filter_local_net_fib ips = function
+      | [] -> [] 
+      | fib::tail when (fib.mask = 0l) -> filter_local_net_fib ips tail
+      | fib::tail ->
+          try 
+            let local_ip = List.find (match_ip_fib fib) ips in
+              [{ip=fib.ip;mask=fib.mask;dev_id=fib.dev_id;gw=fib.gw;local_ip;}] @ 
+              (filter_local_net_fib ips tail)
+          with Not_found ->
+            eprintf "Discarding routing entry %s,%s,%s\n%!" 
+              (Uri_IP.ipv4_to_string fib.ip) (Uri_IP.ipv4_to_string fib.gw)
+              (Uri_IP.ipv4_to_string fib.mask);
+            filter_local_net_fib ips tail
+    in 
+    let rec filter_default_gw_fib fibs = function
+      | [] -> [] 
+      | fib::tail when (fib.mask = 0l) -> begin
+          try 
+            let local_fib = List.find (fun f -> match_ip_fib f fib.gw) fibs in
+              [{ip=fib.ip;mask=fib.mask;gw=fib.gw;dev_id=fib.dev_id;
+                local_ip=local_fib.local_ip;}] @ 
+              (filter_default_gw_fib fibs tail)
+          with Not_found ->
+            eprintf "Discarding routing entry %s,%s,%s\n%!" 
+              (Uri_IP.ipv4_to_string fib.ip) (Uri_IP.ipv4_to_string fib.gw)
+              (Uri_IP.ipv4_to_string fib.mask);
+            filter_default_gw_fib fibs tail      
+        end
+      | fib::tail -> filter_default_gw_fib fibs tail 
+
+    in
+    let direct_fib = filter_local_net_fib local_ips init_fib in
+    let default_gw_fib = filter_default_gw_fib direct_fib init_fib in
+      return (routing_tbl.tbl <- default_gw_fib @ direct_fib)
+
+  let print_routing_table () =
+    let rec print_inner = function
+      | [] -> ()
+      | fib:: tail ->
+          eprintf "Discarding routing entry %s/%s via %s through %s\n%!" 
+              (Uri_IP.ipv4_to_string fib.ip) (Uri_IP.ipv4_to_string fib.mask)
+              (Uri_IP.ipv4_to_string fib.gw)  (Uri_IP.ipv4_to_string fib.local_ip);
+          print_inner tail
+    in
+      print_inner routing_tbl.tbl 
+
+  let longest_match_fib dst fib_new fib_old = 
+    if ((Int32.logand fib_new.ip fib_new.mask) <> 
+           (Int32.logand dst fib_new.mask)) then (
+      fib_old
+           ) else begin
+      match fib_old with
+        | None -> Some(fib_new)
+        | Some(fib) -> begin 
+          if( fib.mask > fib_new.mask) then
+            fib_old
+          else
+            Some(fib_new)
+          end
+    end
 
   let get_next_hop dst =
-    let ip = ref 0l in 
-    let mask = ref 0l in
-    let gw = ref 0l in 
-    let dev = ref "lo" in
       (* TODO need to consider weights in the routing table? *)
-    let match_ip fib = 
-      if ( ( ( (Int32.logor fib.mask !mask) <> !mask) || (!mask = Int32.zero)) &&
-          ((Int32.logand fib.ip fib.mask) = (Int32.logand dst fib.mask))) then (
-            ip := fib.ip;
-            mask := fib.mask;
-            gw := fib.gw;
-            dev := fib.dev_id
-          ) else (())
-    in
-      List.iter match_ip routing_tbl.tbl;
-      (!ip, !gw, !dev)
+      match (List.fold_right (longest_match_fib dst) routing_tbl.tbl None) with
+        | None -> raise Not_found
+        | Some(fib) -> 
+          (fib.ip, fib.gw, fib.dev_id)
+  let get_next_hop_local_ip dst =
+      (* TODO need to consider weights in the routing table? *)
+      match (List.fold_right (longest_match_fib dst) routing_tbl.tbl None) with
+        | None -> raise Not_found
+        | Some(fib) -> fib.local_ip 
 
-  let add_next_hop ip mask gw dev_id = 
-    let entry = {ip; mask; gw; dev_id;} in 
-    let _ = 
-      if (List.mem entry routing_tbl.tbl) then
+  let add_next_hop ip mask gw dev_id local_ip = 
+    let entry = {ip; mask; gw; dev_id;local_ip;} in
+       if (List.mem entry routing_tbl.tbl) then
         ()
       else
         routing_tbl.tbl <- routing_tbl.tbl @ [entry;]
-    in
-      ()
 
   let del_next_hop ip mask gw dev_id = 
-    let entry = {ip; mask; gw; dev_id;} in 
-    let _ = 
-      if (List.mem entry routing_tbl.tbl) then 
-        routing_tbl.tbl <- 
-          (List.filter (fun a -> entry <> a) routing_tbl.tbl)
-    in      
-      ()
+    routing_tbl.tbl <- 
+    (List.filter (fun a -> not ((a.ip = ip) && (a.mask = mask))) routing_tbl.tbl)
 end
 
 
