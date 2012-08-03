@@ -48,6 +48,7 @@ val discover_local_ips : ?dev:string -> unit -> Sp.ip list
  * Lwt.t *)
 val get_local_ips : Sp.name -> Sp.ip list
 val add_public_ip: string-> string -> bool -> bool -> unit
+val get_public_ips: string -> Sp.ip list
 (* val get_node_ip : Sp.name -> int32 *)
 val get_local_name : unit -> string
 val set_local_name : string -> unit
@@ -56,3 +57,6 @@ val get_node_mac : string -> string
 val set_node_mac : string -> string -> unit
 val get_nodes : unit -> string list
 val convert_ip_string_to_int : Sp.ip -> int32
+
+val set_local_sp_ip: int32 -> unit
+val get_local_sp_ip: unit -> int32

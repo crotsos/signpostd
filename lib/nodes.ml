@@ -46,6 +46,7 @@ type nodes_state = {
 }
 
 let local_name = ref "unknown"
+let local_sp_ip = ref 0l
 let server_fd = ref None
 
 (* node name -> Sp.node *)
@@ -263,7 +264,15 @@ let add_public_ip name ip is_nattted is_random =
       Hashtbl.replace node.public_ips ip (is_nattted, is_random)
   with Not_found ->
     eprintf  "Cannot find node %s\n%!" name;
-  ()
+    ()
+
+let get_public_ips name = 
+  try
+    let node = Hashtbl.find node_db.nodes name in
+      Hashtbl.fold (fun k v ret -> [k] @ ret) node.public_ips [] 
+  with Not_found ->
+    eprintf  "Cannot find node %s\n%!" name;
+    []
 
 (* in int32 format for dns. default to 0.0.0.0 *)
 let convert_ip_string_to_int ip_string =
@@ -283,55 +292,9 @@ let convert_ip_string_to_int ip_string =
   in
   ipv4_addr_of_string ip_string
 
-(*
-let get_node_ip name =
-  try 
-    let ip_string = (get_ip name) in
-    convert_ip_string_to_int ip_string
-  with Not_found -> 0l
- *)
+let set_local_sp_ip ip = 
+  local_sp_ip := ip
 
-(*let check_for_publicly_accessible_ips name ips =
-  let token = "hi_from_server" in
-  let listen_port = 30000 + (Random.int 20000) in
-  let list_of_ips_from_string ip_str =
-    let open Re_str in
-    let remove_character_return = regexp "\n" in
-    let on_whitespace = regexp " " in
-    let chomped_str = global_replace remove_character_return "" ip_str in
-    split on_whitespace chomped_str 
-  in
-  let listen_for_datagrams () =
-    let args = (string_of_int listen_port) :: token :: [] in
-    let rpc = Rpc.create_request "listen_for_datagrams" args in
-(*     eprintf "About to send RPC and wait for IP results...\n"; *)
-    try 
-      send_blocking name rpc >>= fun results ->
-(*       eprintf "Got a list of ips back from the server....\n"; *)
-      let public_ips = list_of_ips_from_string results in
-      let node = get name in
-      update name {node with public_ips = public_ips};
-      let ip_list = list_of_ips_from_string results in
-(*       List.iter (fun ip -> eprintf "Received for %s\n%!" ip) ip_list; *)
-(*       eprintf "About to return...\n"; *)
-      return ip_list
-    with Rpc.Timeout ->
-      return []
-  in
-  let send_datagrams () =
-    (* Wait for a while to allow the RPC to reach the client first. *)
-    Lwt_unix.sleep 1.0 >>
-    Lwt_list.iter_p (fun ip ->
-      let target = addr_from ip (of_int listen_port) in
-      let msg = sprintf "%s-%s" token ip in
-      lwt _ = send_datagram msg target in
-       eprintf "Sent datagram %s\n%!" msg; 
-      return ()
-    ) ips >>
-    return []
-  in
-  let fn_list = [listen_for_datagrams; send_datagrams] in
-  lwt ip_list :: _ = Lwt_list.map_p (fun f -> f ()) fn_list in
-  return ip_list *)
-
+let get_local_sp_ip () = 
+  !local_sp_ip 
 (* ---------------------------------------------------------------------- *)
