@@ -34,10 +34,10 @@ val listen : ?port:int -> unit -> unit Lwt.t
 
 val register_handler : Openflow.Packet.Match.t -> 
   (Openflow.Controller.state -> Openflow.Packet.datapath_id -> 
-     Openflow.Controller.Event.e -> unit Lwt.t) -> unit
+     Openflow.Controller.Event.e -> unit Lwt.t) -> unit Lwt.t
 val unregister_handler : Openflow.Packet.Match.t -> 
   (Openflow.Controller.state -> Openflow.Packet.datapath_id -> 
-     Openflow.Controller.Event.e -> unit Lwt.t) -> unit
+     Openflow.Controller.Event.e -> unit Lwt.t) -> unit Lwt.t
 
 val add_dev : string -> string -> string -> unit Lwt.t
 val del_dev : string -> string -> string -> unit Lwt.t
