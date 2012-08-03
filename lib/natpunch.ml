@@ -29,6 +29,8 @@ let pp = Printf.printf
 let sp = Printf.sprintf
 let ep = Printf.eprintf
 
+let tactic_priority = 5
+
 module Manager = struct
   exception NatpunchError of string
   exception MissingNatpunchArgumentError
@@ -238,9 +240,9 @@ module Manager = struct
           let ip = Uri_IP.string_to_ipv4 ip in
           let sp_ip = Uri_IP.string_to_ipv4 sp_ip in
           let port = int_of_string port in
-          let _ = register_dst node ip sp_ip  0 in 
+          lwt _ = register_dst node ip sp_ip  0 in 
           lwt res = connect_client (Uri_IP.ipv4_to_string sp_ip) port in
-          let _ = unregister_dst node ip sp_ip in  
+(*           let _ = unregister_dst node ip sp_ip in   *)
             return(string_of_bool res)
         with exn ->
           raise (NatpunchError((sprintf "[natpanch] error %s" (Printexc.to_string exn))) )
