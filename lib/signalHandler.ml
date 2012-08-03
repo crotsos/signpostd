@@ -185,7 +185,7 @@ module Make (Handler : HandlerSig) = struct
 
   let thread_server ~address ~port =
     (* Listen for UDP packets *)
-    lwt _ = echo_testing_server echo_port in
+    let _ = Lwt.ignore_result (echo_testing_server echo_port) in
     lwt fd = bind_fd ~address ~port in
     while_lwt true do 
       lwt (sock, dst) = Lwt_unix.accept fd in
