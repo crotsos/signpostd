@@ -185,7 +185,7 @@ let handle_notification _ method_name arg_list =
     | "client_connect" -> (
         try_lwt
           (* connection parameter *)
-          let a::b::tp_src::tp_dst::isn::ack::_ = arg_list in 
+          let a::b::_::tp_src::tp_dst::isn::ack::_ = arg_list in 
 
           let Some(port) = Net_cache.Port_cache.dev_to_port_id Config.net_intf in 
           let port = OP.Port.port_of_int port in
