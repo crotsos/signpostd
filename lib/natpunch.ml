@@ -146,6 +146,7 @@ module Manager = struct
        * *)
       let nw_dst = node.public_ip in
       let local_ip = Net_cache.Routing.get_next_hop_local_ip node.public_ip in 
+      let Some(gw_mac) = (Net_cache.Arp_cache.get_next_hop_mac node.public_ip) in 
       let m = OP.Match.(
         {wildcards=(OP.Wildcards.exact_match); 
          in_port=(OP.Port.port_of_int port); 
@@ -159,8 +160,11 @@ module Manager = struct
 
        (* configure outgoing flow *)
         let actions = [
-        OP.Flow.Set_nw_dst(node.public_ip);
+        OP.Flow.Set_dl_dst(gw_mac);
         OP.Flow.Set_nw_src(local_ip);
+         OP.Flow.Set_nw_dst((Uri_IP.string_to_ipv4  "192.168.1.106"));
+        OP.Flow.Output((OP.Port.port_of_int port), 2000);
+        OP.Flow.Set_nw_dst(node.public_ip); 
         OP.Flow.Output((OP.Port.port_of_int port), 2000);] in
       let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
                   ~buffer_id:(Int32.to_int buffer_id) actions () in 
