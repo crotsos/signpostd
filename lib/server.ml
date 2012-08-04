@@ -141,6 +141,8 @@ let signal_t () =
   IncomingSignalling.thread_server ~address:"0.0.0.0" ~port:(of_int Config.signal_port)
 
 let _ =
+  let _ = Net_cache.Routing.load_routing_table () in 
+  let _ = Net_cache.Arp_cache.load_arp () in 
   let daemon_t = join [ dns_t (); signal_t ();
                         Sp_controller.listen () ] in
   Lwt_main.run daemon_t

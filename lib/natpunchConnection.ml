@@ -128,8 +128,9 @@ let enable a b =
       let b_q = sprintf "%s.d%d" b Config.signpost_number in 
       let external_ip = (List.hd (Nodes.get_public_ips b)) in
       let rpc = 
-        Rpc.create_tactic_request "natpanch" Rpc.CONNECT "register_host"
-          [b;external_ip;(Uri_IP.ipv4_to_string (Nodes.get_sp_ip b));] in
+        Rpc.create_tactic_request "natpanch" Rpc.ENABLE "register_host"
+          [b;external_ip;(Uri_IP.ipv4_to_string (Nodes.get_sp_ip b));
+           (Int32.to_string  conn.conn_id );] in
       lwt _ = (Nodes.send_blocking a rpc) in
         return ()
     in
@@ -138,6 +139,22 @@ let enable a b =
    with exn ->
      ep "[natpanch]error:%s\n%!" (Printexc.to_string exn);
      return false
+
+(* Read a MAC address colon-separated string *)
+let ethernet_mac_of_string x =
+  try
+    let s = String.create 6 in
+      Scanf.sscanf x "%2x:%2x:%2x:%2x:%2x:%2x"
+        (fun a b c d e f ->
+           s.[0] <- Char.chr a;
+           s.[1] <- Char.chr b;
+           s.[2] <- Char.chr c;
+           s.[3] <- Char.chr d;
+           s.[4] <- Char.chr e;
+           s.[5] <- Char.chr f;
+        );
+      Some s
+  with _ -> None
 
 let handle_notification _ method_name arg_list =
   match method_name with 
@@ -156,10 +173,52 @@ let handle_notification _ method_name arg_list =
           let rpc = 
             (Rpc.create_tactic_request "natpanch" 
              Rpc.CONNECT "server_connect" 
-             [nw_dst; tp_src; tp_dst; (Uri_IP.ipv4_to_string (Nodes.get_sp_ip dst));
+             [src; nw_dst; tp_src; tp_dst; (Uri_IP.ipv4_to_string (Nodes.get_sp_ip dst));
               (Uri_IP.ipv4_to_string (Nodes.get_sp_ip src));isn;]) in
           lwt _ = Nodes.send_blocking dst rpc in 
             return () 
+        with exn ->
+          eprintf "[natpanch]notification error: %s\n%!" 
+              (Printexc.to_string exn);
+            return()
+        )
+    | "client_connect" -> (
+        try_lwt
+          (* connection parameter *)
+          let a::b::tp_src::tp_dst::isn::ack::_ = arg_list in 
+
+          let Some(port) = Net_cache.Port_cache.dev_to_port_id Config.net_intf in 
+          let port = OP.Port.port_of_int port in
+          let controller = (List.hd 
+                  Sp_controller.switch_data.Sp_controller.of_ctrl) in 
+          let dpid = (List.hd 
+                  Sp_controller.switch_data.Sp_controller.dpid)  in         
+          let ip_a = (Uri_IP.string_to_ipv4 (List.hd (Nodes.get_public_ips a))) in
+          let ip_b = (Uri_IP.string_to_ipv4 (List.hd (Nodes.get_public_ips b))) in
+          let Some(mac_a) = Net_cache.Arp_cache.mac_of_ip ip_a in
+          let Some(mac_b) = Net_cache.Arp_cache.mac_of_ip ip_b in
+            Printf.printf "dst_mac:%s, src_mac:%s\n%!" (Nodes.get_node_mac b) 
+              (Nodes.get_node_mac a);
+          let pkt = Tcp.gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
+                      mac_b "\xff\xff\xff\xff\xff\xff" ip_a ip_b
+                      (int_of_string tp_dst) (int_of_string tp_src)
+          in
+          let bs = (OP.Packet_out.packet_out_to_bitstring 
+                      (OP.Packet_out.create ~buffer_id:(-1l)
+                      ~actions:[OP.(Flow.Output(port, 2000))]
+                      ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
+          lwt _ =  OC.send_of_data controller dpid bs in
+
+          let pkt = Tcp.gen_server_synack (Int32.of_string ack) (Int32.of_string isn)
+                      mac_a "\xff\xff\xff\xff\xff\xff" ip_b ip_a
+                      (int_of_string tp_src) (int_of_string tp_dst)
+          in
+          let bs = (OP.Packet_out.packet_out_to_bitstring 
+                      (OP.Packet_out.create ~buffer_id:(-1l)
+                      ~actions:[OP.(Flow.Output(port, 2000))]
+                      ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
+            OC.send_of_data controller dpid bs
+
         with exn ->
           eprintf "[natpanch]notification error: %s\n%!" 
               (Printexc.to_string exn);
