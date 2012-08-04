@@ -166,7 +166,8 @@ let handle_notification _ method_name arg_list =
           let _ = List.nth arg_list 2 in
           let tp_src = List.nth arg_list 3 in
           let tp_dst = List.nth arg_list 4 in
-          let isn = List.nth arg_list 5 in
+          let conn_id = List.nth arg_list 5 in
+          let isn = List.nth arg_list 6 in
           (* TODO: High end NAT may use src port mapping which we could detect if we
            * tried to send a packet from the source port to the destination. *)
           let nw_dst = List.hd (Nodes.get_public_ips src) in
@@ -185,7 +186,7 @@ let handle_notification _ method_name arg_list =
     | "client_connect" -> (
         try_lwt
           (* connection parameter *)
-          let a::b::_::tp_src::tp_dst::isn::ack::_ = arg_list in 
+          let a::b::tp_src::tp_dst::isn::ack::_ = arg_list in 
 
           let Some(port) = Net_cache.Port_cache.dev_to_port_id Config.net_intf in 
           let port = OP.Port.port_of_int port in
