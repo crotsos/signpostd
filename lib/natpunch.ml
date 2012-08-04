@@ -207,26 +207,36 @@ module Manager = struct
        * *)
       let nw_dst = node.public_ip in
       let local_ip = Net_cache.Routing.get_next_hop_local_ip node.public_ip in 
+      let Some(local_mac) = (Net_cache.Arp_cache.mac_of_ip local_ip) in 
       let Some(gw_mac) = (Net_cache.Arp_cache.get_next_hop_mac node.public_ip) in 
       let m = OP.Match.(
         {wildcards=(OP.Wildcards.exact_match); 
          in_port=(OP.Port.port_of_int port); 
          dl_vlan=0xffff; dl_vlan_pcp=(char_of_int 0); 
          dl_type=0x0800; nw_tos=(char_of_int 0); 
-         dl_src=flow.OP.Match.dl_dst; dl_dst=flow.OP.Match.dl_src;
+         dl_src=gw_mac; dl_dst=local_mac;
          nw_src=nw_dst; nw_dst=local_ip; 
          tp_src=flow.OP.Match.tp_dst;
          tp_dst=flow.OP.Match.tp_src; nw_proto=(char_of_int 6); }) in
-      lwt _ = Sp_controller.register_handler m filter_incoming_rst_packet in 
+      let actions = [
+        OP.Flow.Set_dl_src("\xfe\xff\xff\xff\xff\xff");
+        OP.Flow.Set_nw_src(flow.OP.Match.nw_dst);
+        OP.Flow.Set_nw_dst(flow.OP.Match.nw_src); 
+        OP.Flow.Output(OP.Port.Local, 2000);] in     
+      let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
+                  ~buffer_id:(-1) actions () in 
+
+      let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+      lwt _ = OC.send_of_data controller dpid bs in 
+(*       lwt _ = Sp_controller.register_handler m filter_incoming_rst_packet in
+ *       *)
 
        (* configure outgoing flow *)
         let actions = [
-        OP.Flow.Set_dl_dst(gw_mac);
-        OP.Flow.Set_nw_src(local_ip);
-         OP.Flow.Set_nw_dst((Uri_IP.string_to_ipv4  "192.168.1.106"));
-        OP.Flow.Output((OP.Port.port_of_int port), 2000);
-        OP.Flow.Set_nw_dst(node.public_ip); 
-        OP.Flow.Output((OP.Port.port_of_int port), 2000);] in
+          OP.Flow.Set_dl_dst(gw_mac);
+          OP.Flow.Set_nw_src(local_ip);
+          OP.Flow.Set_nw_dst(node.public_ip); 
+          OP.Flow.Output((OP.Port.port_of_int port), 2000);] in
       let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
                   ~buffer_id:(Int32.to_int buffer_id) actions () in 
       let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
@@ -323,7 +333,7 @@ module Manager = struct
       | "server_connect" ->(
         try_lwt
           (* gathering all the important header fields *)
-          let dst_ip :: dst_port :: src_port :: local_sp_ip :: 
+          let node:: dst_ip :: dst_port :: src_port :: local_sp_ip :: 
               remote_sp_ip:: isn :: _ = args in 
           let dst_ip = Uri_IP.string_to_ipv4 dst_ip in 
           let dst_port = int_of_string dst_port in 
@@ -395,8 +405,6 @@ module Manager = struct
             OP.Flow.Set_nw_src(local_ip);
             OP.Flow.Set_dl_dst(gw_mac);
             OP.Flow.Set_nw_dst(dst_ip);
-            OP.Flow.Output(port, 2000);
-            OP.Flow.Set_nw_dst(Uri_IP.string_to_ipv4 "192.168.1.106");
             OP.Flow.Output(port, 2000);] in
           let m = OP.Match.(
             {wildcards=(OP.Wildcards.exact_match); in_port=OP.Port.Local;
@@ -405,13 +413,14 @@ module Manager = struct
              nw_src=local_sp_ip; nw_dst=remote_sp_ip;
              nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
              tp_src=dst_port; tp_dst=src_port;}) in
-          lwt _ = Sp_controller.register_handler m filter_outgoing_synack_packet in 
+(*           lwt _ = Sp_controller.register_handler m
+ *           filter_outgoing_synack_packet in  *)
 (*           lwt _ = Sp_controller.register_handler flow
  *           handle_outgoing_syn_packet in *)
-(*          let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD
+          let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD
                       ~buffer_id:(-1) actions () in
           let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
-          lwt _ = OC.send_of_data controller dpid bs in *)
+          lwt _ = OC.send_of_data controller dpid bs in 
             return ("true")
         with exn ->
           let err = Printexc.to_string exn in
