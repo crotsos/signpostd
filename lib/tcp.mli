@@ -23,6 +23,7 @@ type tcp_flags_struct = {
 
 val get_tcp_flags : Bitstring.t -> tcp_flags_struct
 val get_tcp_sn : Bitstring.t -> int32
+val get_tcp_ack : Bitstring.t -> int32
 val get_tcp_packet_payload : Bitstring.t -> Bitstring.t
 val gen_server_syn : Bitstring.t -> int32 -> string -> 
   string -> int32 -> int32 -> int -> Bitstring.t  

@@ -69,6 +69,13 @@ let get_tcp_sn data =
        _:-1:bitstring } ->
         isn
     | { _ } -> invalid_arg("get_tcp_sn packet is not TCP")
+let get_tcp_ack data = 
+  bitmatch data with 
+    | {_:96:bitstring; 0x0800:16; 4:4; ihl:4; _:64:bitstring; 6:8; _:16; 
+       _:64:bitstring; _:(ihl-5)*32:bitstring; _:64; ack:32;
+       _:-1:bitstring } ->
+        ack
+    | { _ } -> invalid_arg("get_tcp_sn packet is not TCP")
 
 (*
  * generate a tcp syn packet
