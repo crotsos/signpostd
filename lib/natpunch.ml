@@ -248,7 +248,7 @@ module Manager = struct
 
         let rpc =
           (Rpc.create_tactic_notification "natpanch" Rpc.CONNECT 
-             "client_connect" 
+             "server_connect" 
              [node.name;(Nodes.get_local_name ()); 
               (Uri_IP.ipv4_to_string m.OP.Match.nw_src);
               (string_of_int m.OP.Match.tp_src); 
@@ -335,7 +335,7 @@ module Manager = struct
         try_lwt
           (* gathering all the important header fields *)
           let node::dst_ip :: dst_port :: src_port :: local_sp_ip :: 
-              remote_sp_ip:: isn :: _ = args in 
+              remote_sp_ip:: conn_id :: isn :: _ = args in 
          let dst_ip = Uri_IP.string_to_ipv4 dst_ip in 
           let dst_port = int_of_string dst_port in 
           let src_port = int_of_string src_port in
