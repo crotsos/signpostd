@@ -289,13 +289,41 @@ module Manager = struct
                       ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
           lwt _ = OC.send_of_data controller dpid bs in
 
-          
           let Some(port) = (Net_cache.Port_cache.dev_to_port_id Config.net_intf) in
           let port = OP.Port.port_of_int port in
-          let m = OP.Match.parse_from_raw_packet port pkt in
+
+          let pkt = Tcp.gen_tcp_syn isn local_mac gw_mac 
+                      local_ip dst_ip
+                      dst_port src_port 0x3000 in 
+          let bs = (OP.Packet_out.packet_out_to_bitstring 
+                      (OP.Packet_out.create ~buffer_id:(-1l)
+                      ~actions:[OP.(Flow.Output(port , 2000))]
+                      ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
+          lwt _ = OC.send_of_data controller dpid bs in
+
+          let pkt = Tcp.gen_tcp_syn isn local_mac gw_mac 
+                      local_ip (Uri_IP.string_to_ipv4 "192.168.1.106")
+                      dst_port src_port 0x3000 in 
+          let bs = (OP.Packet_out.packet_out_to_bitstring 
+                      (OP.Packet_out.create ~buffer_id:(-1l)
+                      ~actions:[OP.(Flow.Output(port , 2000))]
+                      ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
+          lwt _ = OC.send_of_data controller dpid bs in
+        
+          let m = OP.Match.(
+            {wildcards=(OP.Wildcards.exact_match); in_port=port;
+             dl_src=gw_mac; dl_dst=local_mac;
+             dl_vlan=0xffff;dl_vlan_pcp=(char_of_int 0);dl_type=0x0800; 
+             nw_src=dst_ip; nw_dst=local_ip;
+             nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
+             tp_src=src_port; tp_dst=dst_port;}) in          
+(*           let m = OP.Match.parse_from_raw_packet port pkt in *)
       
           (* Install appropriate flows to do processing in fast path*)
-          let actions = [OP.Flow.Output((OP.Port.Local), 2000);] in
+          let actions = [OP.Flow.Set_dl_src("\xfe\xff\xff\xff\xff\xff");
+                         OP.Flow.Set_nw_dst(local_sp_ip);
+                         OP.Flow.Set_nw_src(remote_sp_ip);
+                         OP.Flow.Output((OP.Port.Local), 2000);] in
           let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD
                       ~buffer_id:(-1) actions () in
           let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
@@ -303,21 +331,23 @@ module Manager = struct
 
           let actions = [
             OP.Flow.Set_nw_src(local_ip);
+            OP.Flow.Set_dl_dst(gw_mac);
             OP.Flow.Set_nw_dst(dst_ip);
-            OP.Flow.Set_dl_src(gw_mac);
+            OP.Flow.Output(port, 2000);
+            OP.Flow.Set_nw_dst(Uri_IP.string_to_ipv4 "192.168.1.106");
             OP.Flow.Output(port, 2000);] in
           let m = OP.Match.(
             {wildcards=(OP.Wildcards.exact_match); in_port=OP.Port.Local;
-             dl_src=m.OP.Match.dl_dst; dl_dst=m.OP.Match.dl_src;
+             dl_dst="\xfe\xff\xff\xff\xff\xff"; dl_src=local_mac;
              dl_vlan=0xffff;dl_vlan_pcp=(char_of_int 0);dl_type=0x0800; 
-             nw_src=m.OP.Match.nw_dst; nw_dst=m.OP.Match.nw_src;
+             nw_src=local_sp_ip; nw_dst=remote_sp_ip;
              nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
-             tp_src=m.OP.Match.tp_dst; tp_dst=m.OP.Match.tp_src}) in
+             tp_src=dst_port; tp_dst=src_port;}) in
           let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD
                       ~buffer_id:(-1) actions () in
           let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
           lwt _ = OC.send_of_data controller dpid bs in
-            return ("0.0.0.0")
+            return ("true")
         with exn ->
           let err = Printexc.to_string exn in
           pp "[natpunch] error %s\n%!" err;
