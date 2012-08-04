@@ -223,8 +223,6 @@ module Manager = struct
         let actions = [
         OP.Flow.Set_dl_dst(gw_mac);
         OP.Flow.Set_nw_src(local_ip);
-         OP.Flow.Set_nw_dst((Uri_IP.string_to_ipv4  "192.168.1.106"));
-        OP.Flow.Output((OP.Port.port_of_int port), 2000);
         OP.Flow.Set_nw_dst(node.public_ip); 
         OP.Flow.Output((OP.Port.port_of_int port), 2000);] in
       let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
@@ -323,13 +321,15 @@ module Manager = struct
       | "server_connect" ->(
         try_lwt
           (* gathering all the important header fields *)
-          let dst_ip :: dst_port :: src_port :: local_sp_ip :: 
+          let node::dst_ip :: dst_port :: src_port :: local_sp_ip :: 
               remote_sp_ip:: isn :: _ = args in 
-          let dst_ip = Uri_IP.string_to_ipv4 dst_ip in 
+         let dst_ip = Uri_IP.string_to_ipv4 dst_ip in 
           let dst_port = int_of_string dst_port in 
           let src_port = int_of_string src_port in
           let local_sp_ip = Uri_IP.string_to_ipv4 local_sp_ip in
           let remote_sp_ip = Uri_IP.string_to_ipv4 remote_sp_ip in
+            Hashtbl.replace natpanch_state.conns  node
+              {name=node;public_ip=dst_ip; sp_ip=remote_sp_ip; conn_id=0;};
           let isn = Int32.of_string isn in
           let controller = (List.hd 
                   Sp_controller.switch_data.Sp_controller.of_ctrl) in 
@@ -395,8 +395,6 @@ module Manager = struct
             OP.Flow.Set_nw_src(local_ip);
             OP.Flow.Set_dl_dst(gw_mac);
             OP.Flow.Set_nw_dst(dst_ip);
-            OP.Flow.Output(port, 2000);
-            OP.Flow.Set_nw_dst(Uri_IP.string_to_ipv4 "192.168.1.106");
             OP.Flow.Output(port, 2000);] in
           let m = OP.Match.(
             {wildcards=(OP.Wildcards.exact_match); in_port=OP.Port.Local;
