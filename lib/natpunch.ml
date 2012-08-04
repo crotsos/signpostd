@@ -192,6 +192,7 @@ module Manager = struct
       in
       let flow = OP.Match.parse_from_raw_packet port pkt in
       let isn = Tcp.get_tcp_sn pkt in
+      let ack = Tcp.get_tcp_ack pkt in
 
       (* map to remote ip address. If no ip address was found simply
        * disregard the packet *)
@@ -247,12 +248,12 @@ module Manager = struct
 
         let rpc =
           (Rpc.create_tactic_notification "natpanch" Rpc.CONNECT 
-             "server_connect" 
+             "client_connect" 
              [node.name;(Nodes.get_local_name ()); 
               (Uri_IP.ipv4_to_string m.OP.Match.nw_src);
               (string_of_int m.OP.Match.tp_src); 
               (string_of_int m.OP.Match.tp_dst);
-              (Int32.to_string isn);]) in
+              (Int32.to_string ack);(Int32.to_string isn);]) in
           Nodes.send_to_server rpc
     with 
       | exn ->
@@ -417,12 +418,12 @@ module Manager = struct
              tp_src=dst_port; tp_dst=src_port;}) in
 (*           lwt _ = Sp_controller.register_handler m
  *           filter_outgoing_synack_packet in  *)
-(*           lwt _ = Sp_controller.register_handler flow
- *           handle_outgoing_syn_packet in *)
-          let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD
+           lwt _ = Sp_controller.register_handler m
+           handle_outgoing_syn_packet in 
+(*          let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD
                       ~buffer_id:(-1) actions () in
           let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
-          lwt _ = OC.send_of_data controller dpid bs in 
+          lwt _ = OC.send_of_data controller dpid bs in *)
             return ("true")
         with exn ->
           let err = Printexc.to_string exn in
