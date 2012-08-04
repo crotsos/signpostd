@@ -416,10 +416,12 @@ module Manager = struct
              nw_src=local_sp_ip; nw_dst=remote_sp_ip;
              nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
              tp_src=dst_port; tp_dst=src_port;}) in
-(*           lwt _ = Sp_controller.register_handler m
- *           filter_outgoing_synack_packet in  *)
+           lwt _ = Sp_controller.register_handler m
+           filter_outgoing_synack_packet in  
+(*
            lwt _ = Sp_controller.register_handler m
            handle_outgoing_syn_packet in 
+ *)
 (*          let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD
                       ~buffer_id:(-1) actions () in
           let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
