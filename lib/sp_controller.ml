@@ -155,7 +155,8 @@ let register_handler flow cb =
   let controller = (List.hd switch_data.of_ctrl) in 
   let dpid = (List.hd switch_data.dpid)  in          
  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-              ~buffer_id:(-1) ~priority:100
+              ~idle_timeout:0 ~hard_timeout:0
+             ~buffer_id:(-1) ~priority:100
               [OP.Flow.Output(OP.Port.Controller, 150)] () in 
   let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
   lwt _ = OC.send_of_data controller dpid bs in
