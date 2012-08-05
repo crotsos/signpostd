@@ -70,8 +70,66 @@ let construct_key a b =
     | true -> (a,b)
     | false -> (b,a)
 
+
 (**********************************************************************
  * Public API *********************************************************)
+
+let get_link_active_tactic a b =
+  let key = construct_key a b in
+  try
+    let name = ref None in 
+    let conn = Hashtbl.find connections key in
+      Hashtbl.iter 
+        (fun a b -> 
+           if (b.tactic_state = SUCCESS_ACTIVE) then
+             name := Some(a)
+        ) conn.tactic;
+      !name
+  with Not_found ->
+    None
+
+let dump_tunnels () = 
+  let file = "/var/www/tunnels.json" in 
+  let out = [] in 
+  let res = Hashtbl.fold 
+              (fun k v r ->
+                let (cl, s)  = k in 
+                 match (get_link_active_tactic cl s) with
+                   | None -> 
+                       printf "XXXXXXXXXXXX didn't find a tactic for %s - %s\n%!" cl s;
+                       r
+                   | Some(tactic) ->
+                       printf "XXXXXXXXXXXX found a tactic %s for %s - %s\n%!" tactic cl s;
+                       match (cl, s) with
+                         | ("home", _) -> 
+                          (r @ 
+                            ([Json.Object 
+                              [("client", Json.String s); 
+                               ("server", Json.String cl);
+                               ("type", Json.String tactic);
+                              ]]))
+                         | (_, "home") -> 
+                          (r @ 
+                            ([Json.Object 
+                              [("client", Json.String cl); 
+                               ("server", Json.String s);
+                               ("type", Json.String tactic);
+                              ]]))
+                         | (_, _) -> 
+                          (r @ 
+                            ([Json.Object 
+                              [("client", Json.String cl); 
+                               ("server", Json.String s);
+                               ("type", Json.String tactic);
+                              ]]))
+              ) 
+              connections out in
+  let str_out = Json.to_string (Json.Array res) in  
+  let _ = printf "%s\n%!" str_out in 
+  let output = open_out file in 
+  let _ = output_string output str_out in 
+  let _ = close_out output in 
+    return ()
 
 let store_tactic_state a b tactic_name link_state conn_id = 
   let key = construct_key a b in
@@ -102,7 +160,7 @@ let store_tactic_state a b tactic_name link_state conn_id =
     in 
       conn.conn_id <- conn_id;
       conn.tactic_state <- link_state;
-      ()
+        ()
 
 let wait_for_link a b =
   let key = construct_key a b in
@@ -124,19 +182,6 @@ let get_link_status a b =
   with Not_found ->
     FAILED
 
-let get_link_active_tactic a b =
-  let key = construct_key a b in
-  try
-    let name = ref None in 
-    let conn = Hashtbl.find connections key in
-      Hashtbl.iter 
-        (fun a b -> 
-           if (b.tactic_state = SUCCESS_ACTIVE) then
-             name := Some(a)
-        ) conn.tactic;
-      !name
-  with Not_found ->
-    None
 
 let get_tactic_status a b tactic_name =
   let key = construct_key a b in

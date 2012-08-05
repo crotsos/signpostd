@@ -159,7 +159,7 @@ let register_handler flow cb =
              ~buffer_id:(-1) ~priority:100
               [OP.Flow.Output(OP.Port.Controller, 150)] () in 
   let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
-  lwt _ = OC.send_of_data controller dpid bs in
+(*   lwt _ = OC.send_of_data controller dpid bs in *)
     return (Hashtbl.replace switch_data.cb_register flow cb)
 
 let unregister_handler flow_def cb = 
@@ -169,7 +169,7 @@ let unregister_handler flow_def cb =
               ~buffer_id:(-1) ~priority:100
               [] () in 
   let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
-  lwt _ =  OC.send_of_data controller dpid bs in
+(*   lwt _ =  OC.send_of_data controller dpid bs in *)
   let lookup_flow flow entry =
     if (OP.Match.flow_match_compare flow_def flow
            flow.OP.Match.wildcards) then 

@@ -20,13 +20,13 @@ open Printf
 
 
 let tactics = [
-   (module DirectConnection : Sp.TacticSig); 
+(*    (module DirectConnection : Sp.TacticSig);  *)
 (*    (module AvahiConnection : Sp.TacticSig);  *)
-   (module SshConnection : Sp.TacticSig);   
-   (module OpenvpnConnection : Sp.TacticSig); 
+      (module SshConnection : Sp.TacticSig);      
+      (module OpenvpnConnection : Sp.TacticSig);    *)
 (*   (module PrivoxyConnection : Sp.TacticSig);  *)
 (*   (module TorConnection : Sp.TacticSig);  *)
-(*    (module NatpunchConnection : Sp.TacticSig);  *)
+(*      (module NatpunchConnection : Sp.TacticSig); *)
   ]
 
 let tactics_not_attempted_or_failed_for a b =
@@ -133,6 +133,9 @@ let tactic_by_name name =
       Some(tactic)
     with Not_found ->
       None
+
+let dump_tunnels_t () = 
+  while_lwt true 
 
 let find a b =
   eprintf "Finding existing connections between %s and %s\n" a b;
