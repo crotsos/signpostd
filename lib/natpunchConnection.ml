@@ -175,7 +175,7 @@ let handle_notification _ method_name arg_list =
             (Rpc.create_tactic_request "natpanch" 
              Rpc.CONNECT "server_connect" 
              [src; nw_dst; tp_src; tp_dst; (Uri_IP.ipv4_to_string (Nodes.get_sp_ip dst));
-              (Uri_IP.ipv4_to_string (Nodes.get_sp_ip src));isn;]) in
+              (Uri_IP.ipv4_to_string (Nodes.get_sp_ip src));conn_id; isn;]) in
           lwt _ = Nodes.send_blocking dst rpc in 
             return () 
         with exn ->
@@ -204,21 +204,23 @@ let handle_notification _ method_name arg_list =
                       mac_b "\xff\xff\xff\xff\xff\xff" ip_a ip_b
                       (int_of_string tp_dst) (int_of_string tp_src)
           in
-          let bs = (OP.Packet_out.packet_out_to_bitstring 
+          let bs_a = (OP.Packet_out.packet_out_to_bitstring 
                       (OP.Packet_out.create ~buffer_id:(-1l)
                       ~actions:[OP.(Flow.Output(port, 2000))]
                       ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
-          lwt _ =  OC.send_of_data controller dpid bs in
 
           let pkt = Tcp.gen_server_synack (Int32.of_string ack) (Int32.of_string isn)
                       mac_a "\xff\xff\xff\xff\xff\xff" ip_b ip_a
                       (int_of_string tp_src) (int_of_string tp_dst)
           in
-          let bs = (OP.Packet_out.packet_out_to_bitstring 
+          let bs_b = (OP.Packet_out.packet_out_to_bitstring 
                       (OP.Packet_out.create ~buffer_id:(-1l)
                       ~actions:[OP.(Flow.Output(port, 2000))]
                       ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
-            OC.send_of_data controller dpid bs
+          lwt _ =  OC.send_of_data controller dpid bs_a in
+          lwt _ =  OC.send_of_data controller dpid bs_b in
+          lwt _ =  OC.send_of_data controller dpid bs_a in
+            OC.send_of_data controller dpid bs_b
 
         with exn ->
           eprintf "[natpanch]notification error: %s\n%!" 
