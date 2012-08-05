@@ -117,18 +117,28 @@ module Manager = struct
         match flags.Tcp.rst with 
           | true -> return ()
           | false -> (
-              printf "[natpunch] Received the an incomin non rst packet\n%!";
+              printf "[natpunch] Received an incomin non rst packet\n%!";
               let node = Hashtbl.find natpanch_state.conns 
                            (node_of_public_ip m.OP.Match.nw_src) in 
-                 let actions = [
-                   OP.Flow.Set_dl_src("\xfe\xff\xff\xff\xff\xff");
-                   OP.Flow.Set_nw_dst((Nodes.get_local_sp_ip ())); 
-                   OP.Flow.Set_nw_src(node.sp_ip);
-                   OP.Flow.Output(OP.Port.Local, 2000);] in
-                 let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD ~priority:110 
+(*
+           let actions = [OP.Flow.Set_dl_src("\xfe\xff\xff\xff\xff\xff");
+                         OP.Flow.Set_nw_dst(local_sp_ip);
+                         OP.Flow.Set_nw_src(remote_sp_ip);
+                         OP.Flow.Output((OP.Port.Local), 2000);] in
+          let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD
+                      ~buffer_id:(-1) actions () in
+          let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+          lwt _ = OC.send_of_data controller dpid bs in
+ *)
+              let actions = [
+                OP.Flow.Set_dl_src("\xfe\xff\xff\xff\xff\xff");
+                OP.Flow.Set_nw_dst((Nodes.get_local_sp_ip ())); 
+                OP.Flow.Set_nw_src(node.sp_ip);
+                OP.Flow.Output(OP.Port.Local, 2000);] in
+              let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD ~priority:110 
                           ~buffer_id:(Int32.to_int buffer_id) actions () in 
-                 let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
-                    OC.send_of_data controller dpid bs)
+              let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+                OC.send_of_data controller dpid bs)
     with exn ->
       ep "[natpanch] Error: %s\n%!" (Printexc.to_string exn);
       return ()
@@ -173,18 +183,22 @@ module Manager = struct
                 OP.Flow.Set_dl_dst(gw_mac);
                 OP.Flow.Set_nw_dst(node.public_ip);
                 OP.Flow.Output(port, 2000);] in
+              let wild = OP.Wildcards.({in_port=false; dl_vlan=true; dl_src=true; 
+                      dl_dst=true; dl_type=false; nw_proto=false; 
+                      tp_src=false; tp_dst=false; nw_src=(char_of_int 0); 
+                      nw_dst=(char_of_int 0); dl_vlan_pcp=true; nw_tos=true;}) in
               let m = OP.Match.(
-                {wildcards=(OP.Wildcards.exact_match); in_port=OP.Port.Local;
+                {wildcards=wild; in_port=OP.Port.Local;
                  dl_dst="\xfe\xff\xff\xff\xff\xff"; dl_src=local_mac;
                  dl_vlan=0xffff;dl_vlan_pcp=(char_of_int 0);dl_type=0x0800; 
                  nw_src=(Nodes.get_local_sp_ip ()); nw_dst=node.sp_ip;
                  nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
                  tp_src=flow.OP.Match.tp_src; tp_dst=flow.OP.Match.tp_dst;}) in
-              lwt _ = Sp_controller.unregister_handler m filter_outgoing_tcp_packet in 
+(*              lwt _ = Sp_controller.unregister_handler m filter_outgoing_tcp_packet in 
               let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD
                       ~buffer_id:(-1) actions () in
               let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
-              lwt _ = OC.send_of_data controller dpid bs in
+              lwt _ = OC.send_of_data controller dpid bs in *)
 
               (* Notify the signpost server in order to spoof packets *)
               let rpc =
@@ -201,6 +215,7 @@ module Manager = struct
       |(false, true, false) -> 
           (* map to remote ip address. If no ip address was found simply
            * disregard the packet *)
+          printf "Got a syn packet\n%!";
           let node = Hashtbl.find natpanch_state.conns 
                        (node_of_sp_ip flow.OP.Match.nw_dst) in  
           (*
@@ -213,8 +228,12 @@ module Manager = struct
 
           (* setup flow from the internet to the local host.  
           * *)
+          let wild = OP.Wildcards.({in_port=false; dl_vlan=true; dl_src=true; 
+                      dl_dst=true; dl_type=false; nw_proto=false; 
+                      tp_src=false; tp_dst=false; nw_src=(char_of_int 0); 
+                      nw_dst=(char_of_int 0); dl_vlan_pcp=true; nw_tos=true;}) in
           let m = OP.Match.(
-            {wildcards=(OP.Wildcards.exact_match); in_port=port; 
+            {wildcards=wild; in_port=port; 
              dl_vlan=0xffff; dl_vlan_pcp=(char_of_int 0); dl_type=0x0800; 
              nw_tos=(char_of_int 0); dl_src=gw_mac; dl_dst=local_mac;
              nw_src=nw_dst; nw_dst=local_ip; tp_src=flow.OP.Match.tp_dst;
@@ -226,28 +245,12 @@ module Manager = struct
             OP.Flow.Set_nw_dst(flow.OP.Match.nw_src); 
             OP.Flow.Output(OP.Port.Local, 2000);] in     
           let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
-                      ~buffer_id:(-1) actions () in 
+                      ~priority:200 
+                      ~buffer_id:(Int32.to_int buffer_id) actions () in 
 
           let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
           lwt _ = OC.send_of_data controller dpid bs in 
-
-
-          (* This is better , but the fucking armel doesn't respect buffer_id*)
-(*           lwt _ = Sp_controller.register_handler m filter_incoming_rst_packet
- *           in *)
-
-          (* setup flow from the local node to the internet  *)
-          let actions = [
-            OP.Flow.Set_dl_dst(gw_mac);
-            OP.Flow.Set_nw_src(local_ip);
-            OP.Flow.Set_nw_dst(node.public_ip); 
-            OP.Flow.Output( port, 2000);] in
-          let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                      ~buffer_id:(Int32.to_int buffer_id) actions () in 
-          let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
-            lwt _ = OC.send_of_data controller dpid bs in 
-          
-            (* Store the local ip so we know to whom it belongs when we receive
+        (* Store the local ip so we know to whom it belongs when we receive
             * a packet
             * TODO: do I really need this state? *)
             Hashtbl.replace natpanch_state.map_port_ip flow.OP.Match.tp_src 
@@ -265,6 +268,52 @@ module Manager = struct
                   (string_of_int m.OP.Match.tp_dst);
                   (Int32.to_string ack);(Int32.to_string isn);]) in
               Nodes.send_to_server rpc
+
+          (* This is better , but the fucking armel doesn't respect buffer_id*)
+(*           lwt _ = Sp_controller.register_handler m filter_incoming_rst_packet
+ *           in *)
+      | (false, false, _) -> 
+          printf "Got non rst non syn packet\n%!";
+          (* map to remote ip address. If no ip address was found simply
+           * disregard the packet *)
+          let node = Hashtbl.find natpanch_state.conns 
+                       (node_of_sp_ip flow.OP.Match.nw_dst) in  
+          (*
+           * setup icoming flow before any packets arrive
+           * *)
+          let nw_dst = node.public_ip in
+          let local_ip = Net_cache.Routing.get_next_hop_local_ip node.public_ip in 
+          let Some(local_mac) = (Net_cache.Arp_cache.mac_of_ip local_ip) in 
+          let Some(gw_mac) = (Net_cache.Arp_cache.get_next_hop_mac node.public_ip) in 
+
+          (* setup flow from the local node to the internet  *)
+           let wild = OP.Wildcards.({in_port=false; dl_vlan=true; dl_src=true; 
+                      dl_dst=true; dl_type=false; nw_proto=false; 
+                      tp_src=false; tp_dst=false; nw_src=(char_of_int 0); 
+                      nw_dst=(char_of_int 0); dl_vlan_pcp=true; nw_tos=true;}) in
+          let m = OP.Match.(
+            {wildcards=wild; in_port=flow.OP.Match.in_port; 
+             dl_vlan=flow.OP.Match.dl_vlan; dl_vlan_pcp=flow.OP.Match.dl_vlan_pcp; 
+             dl_type=flow.OP.Match.dl_type; 
+             nw_tos=flow.OP.Match.nw_tos; dl_src=flow.OP.Match.dl_src; 
+             dl_dst=flow.OP.Match.dl_dst;
+             nw_src=flow.OP.Match.nw_src; nw_dst=flow.OP.Match.nw_dst; 
+             tp_src=flow.OP.Match.tp_src;
+             tp_dst=flow.OP.Match.tp_dst; nw_proto=flow.OP.Match.nw_proto; }) in
+
+         let actions = [
+            OP.Flow.Set_dl_dst(gw_mac);
+            OP.Flow.Set_nw_src(local_ip);
+            OP.Flow.Set_nw_dst(node.public_ip); 
+            OP.Flow.Output( port, 2000);] in
+          let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD ~priority:200 
+                      ~buffer_id:(Int32.to_int buffer_id) actions () in 
+          let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+          lwt _ = OC.send_of_data controller dpid bs in
+          lwt _ = Sp_controller.unregister_handler flow filter_outgoing_tcp_packet in
+            return ()
+          
+
       | (_, _, _) -> return ()
     with exn ->
       ep "[natpanch] Error: %s\n%!" (Printexc.to_string exn);
@@ -363,6 +412,36 @@ module Manager = struct
           let local_ip = Net_cache.Routing.get_next_hop_local_ip dst_ip in 
           let Some(local_mac) = (Net_cache.Arp_cache.mac_of_ip local_ip) in 
           let Some(gw_mac) = (Net_cache.Arp_cache.get_next_hop_mac dst_ip) in 
+
+          let Some(port) = (Net_cache.Port_cache.dev_to_port_id Config.net_intf) in
+          let port = OP.Port.port_of_int port in
+
+          (* Setup the incoming flow from the internet to the local node  
+          * *)
+
+          let wild = OP.Wildcards.({in_port=false; dl_vlan=true; dl_src=true; 
+                      dl_dst=true; dl_type=false; nw_proto=false; 
+                      tp_src=false; tp_dst=false; nw_src=(char_of_int 0); 
+                      nw_dst=(char_of_int 0); dl_vlan_pcp=true; nw_tos=true;}) in
+          let m = OP.Match.(
+            {wildcards=wild; in_port=port;
+             dl_src=gw_mac; dl_dst=local_mac; dl_vlan=0xffff;
+             dl_vlan_pcp=(char_of_int 0);dl_type=0x0800; nw_src=dst_ip; nw_dst=local_ip;
+             nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
+             tp_src=src_port; tp_dst=dst_port;}) in          
+(*
+           lwt _ = Sp_controller.register_handler m
+           filter_incoming_rst_packet in  
+          
+ *)
+          let actions = [OP.Flow.Set_dl_src("\xfe\xff\xff\xff\xff\xff");
+                         OP.Flow.Set_nw_dst(local_sp_ip);
+                         OP.Flow.Set_nw_src(remote_sp_ip);
+                         OP.Flow.Output((OP.Port.Local), 2000);] in
+          let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD ~priority:200
+                      ~buffer_id:(-1) actions () in
+          let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+          lwt _ = OC.send_of_data controller dpid bs in
           
           (* create syn packet and send it over the openflow control
            * channelto the local node  *)
@@ -373,9 +452,6 @@ module Manager = struct
                       ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
                       ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
           lwt _ = OC.send_of_data controller dpid bs in
-
-          let Some(port) = (Net_cache.Port_cache.dev_to_port_id Config.net_intf) in
-          let port = OP.Port.port_of_int port in
 
           (*
            * send a syn packet also out to the internet in order to open state
@@ -389,6 +465,7 @@ module Manager = struct
                       ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
           lwt _ = OC.send_of_data controller dpid bs in
 
+(*
           let pkt = Tcp.gen_tcp_syn isn local_mac gw_mac local_ip dst_ip
                       dst_port src_port 0x3000 in 
           let bs = (OP.Packet_out.packet_out_to_bitstring 
@@ -397,22 +474,7 @@ module Manager = struct
                       ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
           lwt _ = OC.send_of_data controller dpid bs in
        
-          (* Setup the incoming flow from the internet to the local node  
-          * *)
-          let m = OP.Match.(
-            {wildcards=(OP.Wildcards.exact_match); in_port=port;
-             dl_src=gw_mac; dl_dst=local_mac; dl_vlan=0xffff;
-             dl_vlan_pcp=(char_of_int 0);dl_type=0x0800; nw_src=dst_ip; nw_dst=local_ip;
-             nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
-             tp_src=src_port; tp_dst=dst_port;}) in          
-          let actions = [OP.Flow.Set_dl_src("\xfe\xff\xff\xff\xff\xff");
-                         OP.Flow.Set_nw_dst(local_sp_ip);
-                         OP.Flow.Set_nw_src(remote_sp_ip);
-                         OP.Flow.Output((OP.Port.Local), 2000);] in
-          let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD
-                      ~buffer_id:(-1) actions () in
-          let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
-          lwt _ = OC.send_of_data controller dpid bs in
+ *)
 
           (* Setup the outgoing flow from the local node to the internet 
           * *)
