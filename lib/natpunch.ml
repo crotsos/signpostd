@@ -246,7 +246,7 @@ module Manager = struct
             OP.Flow.Output(OP.Port.Local, 2000);] in     
           let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
                       ~priority:200 
-                      ~buffer_id:(Int32.to_int buffer_id) actions () in 
+                      ~buffer_id:(-1) actions () in 
 
           let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
           lwt _ = OC.send_of_data controller dpid bs in 
@@ -255,7 +255,31 @@ module Manager = struct
             * TODO: do I really need this state? *)
             Hashtbl.replace natpanch_state.map_port_ip flow.OP.Match.tp_src 
               flow.OP.Match.nw_dst;
-        
+           (* setup flow from the local node to the internet  *)
+           let wild = OP.Wildcards.({in_port=false; dl_vlan=true; dl_src=true; 
+                      dl_dst=true; dl_type=false; nw_proto=false; 
+                      tp_src=false; tp_dst=false; nw_src=(char_of_int 0); 
+                      nw_dst=(char_of_int 0); dl_vlan_pcp=true; nw_tos=true;}) in
+          let m = OP.Match.(
+            {wildcards=wild; in_port=flow.OP.Match.in_port; 
+             dl_vlan=flow.OP.Match.dl_vlan; dl_vlan_pcp=flow.OP.Match.dl_vlan_pcp; 
+             dl_type=flow.OP.Match.dl_type; 
+             nw_tos=flow.OP.Match.nw_tos; dl_src=flow.OP.Match.dl_src; 
+             dl_dst=flow.OP.Match.dl_dst;
+             nw_src=flow.OP.Match.nw_src; nw_dst=flow.OP.Match.nw_dst; 
+             tp_src=flow.OP.Match.tp_src;
+             tp_dst=flow.OP.Match.tp_dst; nw_proto=flow.OP.Match.nw_proto; }) in
+
+         let actions = [
+            OP.Flow.Set_dl_dst(gw_mac);
+            OP.Flow.Set_nw_src(local_ip);
+            OP.Flow.Set_nw_dst(node.public_ip); 
+            OP.Flow.Output( port, 2000);] in
+          let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD ~priority:200 
+                      ~buffer_id:(Int32.to_int buffer_id) actions () in 
+          let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+          lwt _ = OC.send_of_data controller dpid bs in
+(*           lwt _ = Lwt.sleep 0.1 in       *)
 
             (*Inform the cloud server in order to propagate it over the control
             * channel *)
@@ -264,9 +288,9 @@ module Manager = struct
                  "server_connect" 
                  [node.name;(Nodes.get_local_name ()); 
                   (Uri_IP.ipv4_to_string m.OP.Match.nw_src);
-                  (string_of_int m.OP.Match.tp_src); 
-                  (string_of_int m.OP.Match.tp_dst);
-                  (Int32.to_string ack);(Int32.to_string isn);]) in
+                  (string_of_int m.OP.Match.tp_dst); 
+                  (string_of_int m.OP.Match.tp_src); (string_of_int node.conn_id);
+                  (Int32.to_string isn);(Int32.to_string ack);]) in
               Nodes.send_to_server rpc
 
           (* This is better , but the fucking armel doesn't respect buffer_id*)
@@ -310,7 +334,8 @@ module Manager = struct
                       ~buffer_id:(Int32.to_int buffer_id) actions () in 
           let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
           lwt _ = OC.send_of_data controller dpid bs in
-          lwt _ = Sp_controller.unregister_handler flow filter_outgoing_tcp_packet in
+(*           lwt _ = Sp_controller.unregister_handler flow
+ *           filter_outgoing_tcp_packet in *)
             return ()
           
 
@@ -338,7 +363,10 @@ module Manager = struct
           loc_port:16; (String.length (Nodes.get_local_name ())):16;
           (Nodes.get_local_name ()):-1:string} in 
       let pkt = Bitstring.string_of_bitstring pkt_bitstring in 
-      lwt _ = Lwt_unix.send client_sock pkt 0 (String.length pkt) [] in 
+      lwt _ = Lwt_unix.send client_sock pkt 0 (String.length pkt) [] in
+      let rcv_buf = String.create 2048 in 
+      lwt recvlen = Lwt_unix.recv client_sock rcv_buf 0 1048 [] in
+
           Lwt_unix.shutdown client_sock SHUTDOWN_ALL; 
           return true
     with exn ->
