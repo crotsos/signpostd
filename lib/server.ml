@@ -143,6 +143,6 @@ let signal_t () =
 let _ =
   let _ = Net_cache.Routing.load_routing_table () in 
   let _ = Net_cache.Arp_cache.load_arp () in 
-  let daemon_t = join [ dns_t (); signal_t ();
+  let daemon_t = join [ dns_t (); signal_t (); Engine.dump_tunnels_t (); 
                         Sp_controller.listen () ] in
   Lwt_main.run daemon_t
