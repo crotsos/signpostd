@@ -96,7 +96,6 @@ let dump_tunnels () =
                 let (cl, s)  = k in 
                  match (get_link_active_tactic cl s) with
                    | None -> 
-                       printf "XXXXXXXXXXXX didn't find a tactic for %s - %s\n%!" cl s;
                        r
                    | Some(tactic) ->
                        printf "XXXXXXXXXXXX found a tactic %s for %s - %s\n%!" tactic cl s;
@@ -124,8 +123,11 @@ let dump_tunnels () =
                               ]]))
               ) 
               connections out in
-  let str_out = Json.to_string (Json.Array res) in  
-  let _ = printf "%s\n%!" str_out in 
+  let str_out = Json.to_string (Json.Array res) in 
+  let _ = 
+    if ((List.length res) > 0) then
+      printf "%s\n%!" str_out
+  in
   let output = open_out file in 
   let _ = output_string output str_out in 
   let _ = close_out output in 
