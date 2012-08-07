@@ -135,10 +135,16 @@ let get_response packet q =
   eprintf "Q: %s\n%!" (String.concat " " qnames);
   let domain = Re_str.(split (regexp_string ".") our_domain) in 
   match (compareVs (List.rev qnames) (List.rev domain)) with
-    | (false, _) -> forward_dns_query_to_sp packet q 
-    | (true, [dst]) -> forward_dns_query_to_ns packet q   
-    | (true, [dst; src]) ->
-        lwt ret = forward_dns_query_to_ns packet q in 
+    | (false, _) 
+    | (true, []) ->
+        printf "Forward to internet %s\n%!" (String.concat "." qnames) ;
+        forward_dns_query_to_ns packet q 
+    | (true, src::rest) when ((List.length rest) = 0)-> 
+        printf "Forward to sp %s\n%!" (String.concat "." qnames) ;
+        forward_dns_query_to_sp packet q   
+    | (true, src::rest)  when ((List.length rest) > 1) ->
+        printf "Forward to sp mobile client %s\n%!" (String.concat "." qnames) ;
+        lwt ret = forward_dns_query_to_sp packet q in 
         let _ = Lwt.ignore_result (register_mobile_host src) in 
           return (ret)
 
