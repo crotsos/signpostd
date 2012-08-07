@@ -83,8 +83,8 @@ let forward_dns_query_to_ns packet _ =
 let sp_gethostbyname name =
   DP.(
     let domain = Dns.Name.string_to_domain_name name in
-    lwt r = Dns_resolver.resolve ~server:Config.external_ip ~dns_port:Config.dns_port
-              ~q_class:Q_IN ~q_type:Q_A domain in
+    lwt r = Dns_resolver.resolve Config.external_ip Config.dns_port
+              Q_IN Q_A domain in
        return (r.answers ||> (fun x -> match x.rdata with
                                 | DP.A ip -> Some ip
                                 | _ -> None
