@@ -37,14 +37,22 @@ let usage () = eprintf "Usage: %s <node-name> <node-ip> <node-signalling-port>\n
 
 (*checks if list v2 is a sublist of v1 *)
 let rec compareVs v1 v2 = match v1, v2 with
-  | [], _ -> false
-  | _, [] -> true
+  | [], _ -> (false, [])
+  | rest, [] -> (true, rest)
   | x::xs, y::ys -> 
 (*       Printf.printf "%s %s\n%!" x y; *)
-      x = y && compareVs xs ys
+      if(x = y) then 
+        compareVs xs ys
+      else 
+        (false, [])
 
 let nxdomain =
   {Dns.Query.rcode=DP.NXDomain; aa=false; answer=[]; authority=[]; additional=[]}
+
+let register_mobile_host name = 
+  let args = [!node_name; name] in
+  let rpc = Rpc.create_notification "register_mobile_host" args in
+      Nodes.send_to_server rpc
 
 let bind_ns_fd () =
   if (!ns_fd_bind) then (
@@ -126,10 +134,14 @@ let get_response packet q =
   let qnames = List.map String.lowercase q.q_name in
   eprintf "Q: %s\n%!" (String.concat " " qnames);
   let domain = Re_str.(split (regexp_string ".") our_domain) in 
-  if (compareVs (List.rev qnames) (List.rev domain)) then
-    forward_dns_query_to_sp packet q 
-  else
-    forward_dns_query_to_ns packet q   
+  match (compareVs (List.rev qnames) (List.rev domain)) with
+    | (false, _) -> forward_dns_query_to_sp packet q 
+    | (true, [dst]) -> forward_dns_query_to_ns packet q   
+    | (true, [dst; src]) ->
+        lwt ret = forward_dns_query_to_ns packet q in 
+        let _ = Lwt.ignore_result (register_mobile_host src) in 
+          return (ret)
+
 
 let dnsfn ~src ~dst packet =
   let open Dns.Packet in
