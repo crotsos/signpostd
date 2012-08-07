@@ -24,3 +24,4 @@ val find : Sp.name -> Sp.name -> Sp.addressable Lwt.t
 
 val tactic_by_name : Rpc.tactic_name -> (module Sp.TacticSig) option
 val connect_using_tactic : string -> string -> string -> bool Lwt.t
+val dump_tunnels_t: unit -> unit Lwt.t
