@@ -97,6 +97,11 @@ let handle_notification fd ip command arg_list =
     eprintf "HELLO with args %s\n%!" 
     (String.concat ", " arg_list);
     handle_hello fd ip arg_list
+  | Command("register_mobile_host") -> 
+      let a::b::_ = arg_list in
+    eprintf "register_mobile_host with args %s\n%!" 
+    (String.concat ", " arg_list);
+      return (Connections.store_tactic_state a b "direct" Connections.SUCCESS_ACTIVE None)
   | Command("exec_tactic") -> 
     begin 
       try
