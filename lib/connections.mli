@@ -59,3 +59,5 @@ val get_link_status : Sp.name -> Sp.name -> link_state
  *)
 val get_tactic_status : Sp.name -> Sp.name -> 
   Rpc.tactic_name -> link_state
+
+val dump_tunnels: unit -> unit Lwt.t

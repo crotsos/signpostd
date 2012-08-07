@@ -23,7 +23,7 @@ let tactics = [
 (*    (module DirectConnection : Sp.TacticSig);  *)
 (*    (module AvahiConnection : Sp.TacticSig);  *)
       (module SshConnection : Sp.TacticSig);      
-      (module OpenvpnConnection : Sp.TacticSig);    *)
+      (module OpenvpnConnection : Sp.TacticSig);    
 (*   (module PrivoxyConnection : Sp.TacticSig);  *)
 (*   (module TorConnection : Sp.TacticSig);  *)
 (*      (module NatpunchConnection : Sp.TacticSig); *)
@@ -135,7 +135,13 @@ let tactic_by_name name =
       None
 
 let dump_tunnels_t () = 
-  while_lwt true 
+  let _ = 
+    while_lwt (true) do 
+      lwt _ = Lwt_unix.sleep 1.0 in 
+        Connections.dump_tunnels ()
+    done
+  in 
+    return ()
 
 let find a b =
   eprintf "Finding existing connections between %s and %s\n" a b;
