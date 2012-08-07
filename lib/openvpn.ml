@@ -177,7 +177,32 @@ module Manager = struct
                 ~buffer_id:(-1) actions () in 
     let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
     lwt _ = OC.send_of_data controller dpid bs in
-      
+
+
+    (* setup arp handling for 10.3.0.0/24 *)
+    let arp_wild = OP.Wildcards.({
+      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
+      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
+      nw_dst=(char_of_int 8); nw_src=(char_of_int 8);
+      dl_vlan_pcp=true; nw_tos=true;}) in
+    let flow = OP.Match.create_flow_match arp_wild
+                 ~in_port:(OP.Port.int_of_port OP.Port.Local) ~dl_type:0x0806
+                 ~nw_src:local_ip ~nw_dst:rem_ip () in
+    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
+                ~priority:tactic_priority ~idle_timeout:0 
+                ~buffer_id:(-1) [OP.Flow.Output((OP.Port.port_of_int port),2000)] () in 
+    let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+    lwt _ = OC.send_of_data controller dpid bs in
+    let flow = OP.Match.create_flow_match arp_wild
+                 ~in_port:(port) ~dl_type:0x0806
+                 ~nw_src:local_ip ~nw_dst:rem_ip () in
+    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
+                ~priority:tactic_priority ~idle_timeout:0 
+                ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local,2000)] () in 
+    let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+    lwt _ = OC.send_of_data controller dpid bs in
+
+
     (* get local mac address *)
     let ip_stream = 
       (Unix.open_process_in
