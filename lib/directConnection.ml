@@ -153,17 +153,20 @@ let enable_direct conn a b =
   with ex -> 
     Printf.printf "[direct]Failed direct enabling %s->%s:%s\n%!" a b
       (Printexc.to_string ex);
-    raise Direct_error
+    raise Direct_error 
 
-let enable a b = 
-  let key = gen_key a b in  
-  match (Hashtbl.mem state.conns key) with
-    | false -> return false
-    | true -> 
-        let conn = Hashtbl.find state.conns key in
-        lwt _ = (enable_direct conn a b) <&>
-                   (enable_direct conn b a) in
-          return true
+let enable a b =
+  try_lwt 
+    let key = gen_key a b in  
+    match (Hashtbl.mem state.conns key) with
+      | false -> return false
+      | true -> 
+          let conn = Hashtbl.find state.conns key in
+          lwt _ = (enable_direct conn a b) <&>
+                     (enable_direct conn b a) in
+            return true
+  with exn ->
+    return false
       
 (*
  * disable code
@@ -183,14 +186,17 @@ let disable_direct conn a b =
     raise Direct_error
 
 let disable a b =
-  let key = gen_key a b in
-    match (Hashtbl.mem state.conns key) with 
-      | false -> return true
-      | true -> 
+  try_lwt
+    let key = gen_key a b in
+      match (Hashtbl.mem state.conns key) with 
+        | false -> return true
+        | true -> 
           let conn = Hashtbl.find state.conns key in
           lwt _ = (disable_direct conn a b) <&>
                      (disable_direct conn b a) in
             return true
+  with exn ->
+    return false
 
 (*
  * teardown code
