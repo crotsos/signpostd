@@ -129,13 +129,17 @@ module Make (Handler : HandlerSig) = struct
           let buf = String.create 4096 in
           lwt len = Lwt_unix.recv sock buf 0 (String.length buf) [] in
           match len with 
-            | 0 -> 
+            | 0 -> begin 
                 (* TODO: Propagate an event to engine to serverSignal to clean up 
                  * state for node *)
-                Printf.printf "[signal] session terminated with end-node %s\n%!"
-                  (sockaddr_to_string dst);
+                match (Lwt_unix.getsockopt_error sock) with
+                  | None -> process_buffer ()
+                  | Some(err) ->
+                      Printf.printf "[signal] session terminated with end-node %s : %s\n%!"
+                        (sockaddr_to_string dst) (Unix.error_message err);
                 running := false;
                 return () 
+              end
             | _ ->
                 let subbuf = String.sub buf 0 len in
                   data := !data ^ subbuf;
@@ -143,8 +147,8 @@ module Make (Handler : HandlerSig) = struct
                   process_buffer ()
         done
     with exn ->
-      Printf.printf "[signal] session terminated with end-node %s\n%!"
-        (sockaddr_to_string dst);
+      Printf.printf "[signal] session terminated with end-node %s : %s\n%!"
+        (sockaddr_to_string dst) (Printexc.to_string exn);
       running := false;
       return ()
 
