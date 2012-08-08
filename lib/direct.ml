@@ -110,32 +110,38 @@ module Manager = struct
         raise (DirectError(Printexc.to_string err))
 
   let test kind args =
-    match kind with
-      (* start udp server *)
-      | "server_start" -> (
-          let port = (int_of_string (List.hd args)) in 
-          let _ = run_server port in
+    try_lwt 
+      match kind with
+        (* start udp server *)
+        | "server_start" -> (
+            let port = (int_of_string (List.hd args)) in 
+           let _ = run_server port in
+              return ("OK"))
+        (* code to stop the udp echo server*)
+        | "server_stop" -> (
+          match conn_db.can with
+            | Some t ->
+                cancel t;
+                conn_db.can <- None;
+                (match conn_db.fd with
+                   | Some(fd) -> (Lwt_unix.close fd; conn_db.fd <- None; ())
+                   | _ -> ());
+                return ("OK")
+            | _ -> return ("OK"))
+        (* code to send udp packets to the destination*)
+        | "client" -> (
+            let port :: ips = args in 
+              lwt ip = run_client (int_of_string port) ips in
+                (printf "[direct] Received a reply from ip %s \n%!" ip);
+                return (ip))
+        | _ -> (
+            printf "[direct] Action %s not supported in test" kind;
             return ("OK"))
-      (* code to stop the udp echo server*)
-      | "server_stop" -> (
-        match conn_db.can with
-          | Some t ->
-              cancel t;
-              conn_db.can <- None;
-              (match conn_db.fd with
-                 | Some(fd) -> (Lwt_unix.close fd; conn_db.fd <- None; ())
-                 | _ -> ());
-              return ("OK")
-          | _ -> return ("OK"))
-      (* code to send udp packets to the destination*)
-      | "client" -> (
-          let port :: ips = args in 
-            lwt ip = run_client (int_of_string port) ips in
-              (printf "[direct] Received a reply from ip %s \n%!" ip);
-              return (ip))
-      | _ -> (
-          printf "[direct] Action %s not supported in test" kind;
-          return ("OK"))
+      with exn -> 
+       eprintf "[direct] client test error: %s\n%!" 
+         (Printexc.to_string exn);
+        raise (DirectError(Printexc.to_string exn))
+
 
   (***************************************************************
    * Connection code 
