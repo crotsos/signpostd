@@ -38,9 +38,9 @@ let usage () = eprintf "Usage: %s <node-name> <node-ip> <node-signalling-port>\n
 (*checks if list v2 is a sublist of v1 *)
 let rec compareVs v1 v2 = match v1, v2 with
   | [], _ -> (false, [])
-  | rest, [] -> (true, rest)
+  | rest, [] -> (true, ["slave"])
   | x::xs, y::ys -> 
-(*       Printf.printf "%s %s\n%!" x y; *)
+      Printf.printf "%s %s\n%!" x y; 
       if(x = y) then 
         compareVs xs ys
       else 
@@ -139,14 +139,15 @@ let get_response packet q =
     | (true, []) ->
         printf "Forward to internet %s\n%!" (String.concat "." qnames) ;
         forward_dns_query_to_ns packet q 
-    | (true, src::rest) when ((List.length rest) = 0)-> 
+    | (true, src) when ((List.length src) = 1)-> 
         printf "Forward to sp %s\n%!" (String.concat "." qnames) ;
         forward_dns_query_to_sp packet q   
-    | (true, src::rest)  when ((List.length rest) > 1) ->
+    | (true, src)  when ((List.length src) > 1) ->
         printf "Forward to sp mobile client %s\n%!" (String.concat "." qnames) ;
         lwt ret = forward_dns_query_to_sp packet q in 
-        let _ = Lwt.ignore_result (register_mobile_host src) in 
+        let _ = Lwt.ignore_result (register_mobile_host (List.hd src)) in 
           return (ret)
+    | (_, _) -> failwith "XXX Error\n%!"
 
 
 let dnsfn ~src ~dst packet =
