@@ -38,9 +38,8 @@ let usage () = eprintf "Usage: %s <node-name> <node-ip> <node-signalling-port>\n
 (*checks if list v2 is a sublist of v1 *)
 let rec compareVs v1 v2 = match v1, v2 with
   | [], _ -> (false, [])
-  | rest, [] -> (true, ["slave"])
+  | rest, [] -> (true, rest)
   | x::xs, y::ys -> 
-      Printf.printf "%s %s\n%!" x y; 
       if(x = y) then 
         compareVs xs ys
       else 
@@ -102,11 +101,11 @@ let sp_gethostbyname name =
        ))
 
 
-let forward_dns_query_to_sp _ q = 
+let forward_dns_query_to_sp _ dst q = 
   let module DP = Dns.Packet in
   let module DQ = Dns.Query in
   (* Normalise the domain names to lower case *)
-  let dst = String.lowercase (List.hd q.DP.q_name) in
+(*   let dst = String.lowercase (List.hd (List.rev q.DP.q_name)) in *)
   let src = !node_name in 
   let host = (Printf.sprintf "%s.%s.%s" dst src our_domain) in  
   lwt src_ip = 
@@ -137,15 +136,14 @@ let get_response packet q =
   match (compareVs (List.rev qnames) (List.rev domain)) with
     | (false, _) 
     | (true, []) ->
-        printf "Forward to internet %s\n%!" (String.concat "." qnames) ;
         forward_dns_query_to_ns packet q 
     | (true, src) when ((List.length src) = 1)-> 
-        printf "Forward to sp %s\n%!" (String.concat "." qnames) ;
-        forward_dns_query_to_sp packet q   
-    | (true, src)  when ((List.length src) > 1) ->
-        printf "Forward to sp mobile client %s\n%!" (String.concat "." qnames) ;
-        lwt ret = forward_dns_query_to_sp packet q in 
-        let _ = Lwt.ignore_result (register_mobile_host (List.hd src)) in 
+        printf "Forward to sp %s\n%!" (String.concat "." src) ;
+        forward_dns_query_to_sp packet (List.hd src) q
+    | (true, src)  when ((List.length src) = 2) ->
+        printf "Forward to sp mobile client %s\n%!" (String.concat "." src) ;
+        lwt ret = forward_dns_query_to_sp packet (List.hd src) q in 
+        let _ = Lwt.ignore_result (register_mobile_host (List.nth src 1)) in 
           return (ret)
     | (_, _) -> failwith "XXX Error\n%!"
 
@@ -158,7 +156,7 @@ let dnsfn ~src ~dst packet =
     | _ -> eprintf "dns dns query: multiple questions\n%!"; return None
 
 let dns_t () =
-  lwt fd, src = Dns_server.bind_fd ~address:"127.0.0.1" ~port:53 in
+  lwt fd, src = Dns_server.bind_fd ~address:"0.0.0.0" ~port:53 in
     Dns_server.listen ~fd ~src ~dnsfn 
 
 let get_hello_rpc ips =
