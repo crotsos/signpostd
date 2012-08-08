@@ -20,10 +20,10 @@ open Printf
 
 
 let tactics = [
-(*    (module DirectConnection : Sp.TacticSig);  *)
+     (module DirectConnection : Sp.TacticSig);  
 (*    (module AvahiConnection : Sp.TacticSig);  *)
-      (module SshConnection : Sp.TacticSig);      
-      (module OpenvpnConnection : Sp.TacticSig);    
+     (module OpenvpnConnection : Sp.TacticSig);
+     (module SshConnection : Sp.TacticSig);   
 (*   (module PrivoxyConnection : Sp.TacticSig);  *)
 (*   (module TorConnection : Sp.TacticSig);  *)
 (*      (module NatpunchConnection : Sp.TacticSig); *)
@@ -72,29 +72,31 @@ let iter_over_tactics wakener a b =
         Connections.IN_PROGRESS None 
       | _ -> () 
     in
-    lwt _ = Tactic.test a b in 
-    lwt res = Tactic.connect a b in 
-    match res with
-      | false -> 
-          Printf.printf "XXXXX tactic %s failed\n%!" (Tactic.name ());
-          return ()
-      | true ->       
-          lwt _ = Tactic.enable a b in
-          lwt _ = match (Connections.get_link_active_tactic a b) with 
-            | None -> return true
-            | Some(tactic) -> disable_tactic tactic a b 
-          in
-          Connections.store_tactic_state a b 
-            (Tactic.name ()) Connections.SUCCESS_ACTIVE 
-            None;
-          return(Lwt.wakeup wakener true)
+    lwt res = Tactic.test a b in 
+      match res with 
+        | false -> return ()
+        | true -> begin
+          lwt res = Tactic.connect a b in 
+          match res with
+            | false -> 
+              return (Printf.printf "XXXXX tactic %s failed\n%!" (Tactic.name ()))
+            | true ->(
+              lwt _ = Tactic.enable a b in
+              lwt _ = 
+                match (Connections.get_link_active_tactic a b) with 
+                | None -> return true
+                | Some(tactic) -> disable_tactic tactic a b 
+              in
+              Connections.store_tactic_state a b 
+                (Tactic.name ()) Connections.SUCCESS_ACTIVE None;
+              return(Lwt.wakeup wakener true))
+          end
   ) (tactics_not_attempted_or_failed_for a b) in
   match (Connections.get_link_status a b) with
     | Connections.IN_PROGRESS -> 
-        Connections.store_tactic_state a b 
-        ("direct") Connections.FAILED 
-        None;
-      return(Lwt.wakeup wakener false)
+        Connections.store_tactic_state a b "direct" Connections.FAILED 
+          None;
+        return(Lwt.wakeup wakener false)
     | _ ->  return() 
 
 let connect wakener a b =
@@ -106,21 +108,22 @@ let connect wakener a b =
 let connect_using_tactic tactic a b = 
   Printf.printf "using tactic %s to connect %s %s\n%!" tactic a b; 
   try_lwt
-    lwt t = Lwt_list.find_s ( fun t -> 
-    let module Tactic = (val t : Sp.TacticSig) in
-      return ( (String.compare tactic (Tactic.name ())) = 0)
+    lwt t = Lwt_list.find_s ( 
+      fun t -> 
+        let module Tactic = (val t : Sp.TacticSig) in
+          return ( (String.compare tactic (Tactic.name ())) = 0)
     ) tactics in
     let module Tactic = (val t : Sp.TacticSig) in
-    Printf.eprintf "found tactic %s\n%!" (Tactic.name ()); 
-    lwt _ = Tactic.test a b in 
-    lwt ret = Tactic.connect a b in
-    lwt _ = 
-      if (ret) then 
-        Tactic.enable a b 
-      else
-        return (false)
-    in
-      return ret
+      Printf.eprintf "found tactic %s\n%!" (Tactic.name ()); 
+    lwt ret = Tactic.test a b in 
+      match (ret) with
+        | false -> return false
+        | true -> begin
+          lwt ret = Tactic.connect a b in
+            match ret with
+              | true ->  Tactic.enable a b 
+              | false ->  return (false)
+          end
   with Not_found ->
     Printf.eprintf "cannot find tactic %s\n%!" tactic;
     return false
@@ -145,7 +148,6 @@ let dump_tunnels_t () =
 
 let find a b =
   eprintf "Finding existing connections between %s and %s\n" a b;
-(*   eprintf "Trying to establish new ones\n"; *)
   try_lwt
     match (Connections.get_link_status a b) with 
       | Connections.FAILED -> (
