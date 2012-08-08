@@ -68,7 +68,7 @@ module Make (Handler : HandlerSig) = struct
 
   let dispatch_rpc fd msg = 
     match msg.cmd with 
-      | Some _ -> classify fd msg
+      | Some _ -> return (Lwt.ignore_result (classify fd msg))
       | None -> 
           eprintf "signal handler cannot dispatch a 'None'-RPC\n%!";
           return ()
@@ -119,7 +119,7 @@ module Make (Handler : HandlerSig) = struct
                           src_ip=(Uri_IP.string_to_ipv4(Unix.string_of_inet_addr a)); 
                           src_port=0; cmd=Some(rpc);}
                   in 
-                    dispatch_rpc sock msg;
+                    lwt _ = dispatch_rpc sock msg in 
                     process_buffer ()
               end
         in
