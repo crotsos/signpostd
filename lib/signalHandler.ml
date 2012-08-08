@@ -108,9 +108,11 @@ module Make (Handler : HandlerSig) = struct
             | 0 -> return ()
             | _ -> begin 
                 let (Some(rpc), len) = Rpc.rpc_of_string !data in
+(*
                   Printf.printf "XXXXXXXXXXXXX processing %s [remainder: %s]\n%!" 
                     (String.sub !data 0 len)
                     (String.sub !data len ((String.length !data) - len));
+ *)
                   data := String.sub !data len ((String.length !data) - len);
                   let msg = 
                     match dst with 
