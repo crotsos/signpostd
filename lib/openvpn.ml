@@ -50,6 +50,16 @@ module Manager = struct
   }
 
   let conn_db = {conns=(Hashtbl.create 0); can=None;fd=None;}
+
+
+  (*
+   * a helper function that waits until a newly installed dev
+   * becomes available on openflow.
+  * *)
+  let rec get_port dev = 
+    match ( Net_cache.Port_cache.dev_to_port_id dev) with
+      | Some(port) -> return (port)
+      | None -> lwt _ = Lwt_unix.sleep 1.0 in (get_port dev)
 (*******************************************************
  *             Testing code 
  *******************************************************)
@@ -165,7 +175,8 @@ module Manager = struct
       dl_vlan_pcp=true; nw_tos=true;}) in
     let flow = OP.Match.create_flow_match flow_wild 
                  ~dl_type:(0x0800) ~nw_dst:remote_sp_ip () in
-    let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in
+    lwt port = get_port dev in 
+    (*     let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in *)
     let actions = [ OP.Flow.Set_nw_src(local_ip);
                     OP.Flow.Set_nw_dst(rem_ip);
                     OP.Flow.Set_dl_dst(
@@ -320,7 +331,8 @@ module Manager = struct
     let dpid = 
       (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
 
-    let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in
+    lwt port = get_port dev in
+(*     let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in *)
     (* outgoing flow configuration *)
 
       (* Note: use constant and specific priority values for 
@@ -345,7 +357,29 @@ module Manager = struct
                 ~buffer_id:(-1) actions () in 
     let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
     lwt _ = OC.send_of_data controller dpid bs in
-      
+    (* setup arp handling for 10.3.0.0/24 *)
+    let arp_wild = OP.Wildcards.({ 
+      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
+      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
+      nw_dst=(char_of_int 8); nw_src=(char_of_int 8);
+      dl_vlan_pcp=true; nw_tos=true;}) in
+    let flow = OP.Match.create_flow_match arp_wild
+                 ~in_port:(OP.Port.int_of_port OP.Port.Local) ~dl_type:0x0806
+                             ~nw_src:local_ip ~nw_dst:rem_ip () in
+    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD
+                ~priority:tactic_priority ~idle_timeout:0
+                ~buffer_id:(-1) [OP.Flow.Output((OP.Port.port_of_int port),2000)] () in
+    let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+      lwt _ = OC.send_of_data controller dpid bs in
+      let flow = OP.Match.create_flow_match arp_wild
+                   ~in_port:(port) ~dl_type:0x0806
+                               ~nw_src:local_ip ~nw_dst:rem_ip () in
+      let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD
+                  ~priority:tactic_priority ~idle_timeout:0
+                  ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local,2000)] () in
+      let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+        lwt _ = OC.send_of_data controller dpid bs in
+
     (* get local mac address *)
     let ip_stream = 
       (Unix.open_process_in
@@ -374,6 +408,30 @@ module Manager = struct
     let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
       OC.send_of_data controller dpid bs
 
+  let send_gratuitous_arp local_ip = 
+    let controller = 
+      (List.hd Sp_controller.switch_data.Sp_controller.of_ctrl) in 
+    let dpid = 
+      (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
+    let nw_src = Uri_IP.string_to_ipv4 local_ip in
+    let ip_stream = (Unix.open_process_in
+                       (Config.dir ^ 
+                        "/client_tactics/get_local_device br0")) in
+    let test = Re_str.split (Re_str.regexp " ") 
+                 (input_line ip_stream) in 
+    let _::dl_src::_ = test in
+    let dl_src = Net_cache.Arp_cache.mac_of_string dl_src in
+    let data = BITSTRING
+       {"\xff\xff\xff\xff\xff\xff":48:string; dl_src:48:string; 0x0806:16; 
+        1:16; 0x0800:16; 6:8; 4:6; 1:16; dl_src:48:string; nw_src:32;
+        "\x00\x00\x00\x00\x00\x00":48:string;nw_src:32} in
+    let pkt = 
+          OP.Packet_out.create ~buffer_id:(-1l) 
+            ~actions:[ OP.(Flow.Output(Port.All , 2000))] 
+            ~data:data ~in_port:OP.Port.No_port () 
+    in
+    let bs = OP.Packet_out.packet_out_to_bitstring pkt in 
+      OC.send_of_data controller dpid bs
        
   let connect kind args =
     match kind with
@@ -382,6 +440,7 @@ module Manager = struct
         let port::node::domain::conn_id::local_ip::_ = args in
         let conn_id = Int32.of_string conn_id in 
         lwt _ = get_domain_dev_id node domain port local_ip conn_id in
+        lwt _ = send_gratuitous_arp local_ip in 
           return ("true")
       with e -> 
         eprintf "[openvpn] server error: %s\n%!" (Printexc.to_string e); 
@@ -401,6 +460,7 @@ module Manager = struct
         let _ = Hashtbl.add conn_db.conns (domain) 
             {ip=ip;port=(int_of_string port);pid;
              dev_id;nodes=[node ^ "." ^ Config.domain]; conn_id;} in
+        lwt _ = send_gratuitous_arp local_ip in 
           return ("true")
       with ex ->
         Printf.printf "[opevpn] client error: %s\n%!" (Printexc.to_string ex);
@@ -429,7 +489,8 @@ module Manager = struct
             | Some (dev) ->
                 lwt _ = setup_flows (sprintf "tap%d" dev) mac_addr 
                           local_ip remote_ip local_sp_ip remote_sp_ip in
-              return true
+                lwt _ = send_gratuitous_arp (Uri_IP.ipv4_to_string local_ip) in 
+                  return true
       with e -> 
         eprintf "[openvpn] server error: %s\n%!" (Printexc.to_string e); 
         raise (OpenVpnError((Printexc.to_string e)))
@@ -444,7 +505,9 @@ module Manager = struct
       (List.hd Sp_controller.switch_data.Sp_controller.of_ctrl) in 
     let dpid = 
       (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
-    let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in
+
+    lwt port = get_port dev in 
+(*     let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in *)
 
     (* outgoing flow removal *)
     let flow_wild = OP.Wildcards.({
@@ -461,7 +524,7 @@ module Manager = struct
       ( OP.Flow_mod.flow_mod_to_bitstring pkt  ) in
       
     (* Setup incoming flow *)
-    let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in
+(*     let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in *)
     let flow_wild = OP.Wildcards.({
       in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
       dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;

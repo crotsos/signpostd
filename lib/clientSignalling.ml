@@ -51,7 +51,7 @@ let connect_client ip port =
         Lwt_unix.shutdown client_sock SHUTDOWN_ALL; 
         return true
   with exn ->
-    eprintf "[natpanch] tcp client error:%s\n%!" (Printexc.to_string exn);
+    eprintf "[signal] tcp client error:%s\n%!" (Printexc.to_string exn);
     return false
 
 let handle_request fd ip command arg_list =
