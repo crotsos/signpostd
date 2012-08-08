@@ -37,8 +37,8 @@ module type HandlerSig = sig
 end
 
 module type Functor = sig
-  val thread_client : unit Lwt.u -> unit Lwt.u -> address:Sp.ip -> 
-    port:Sp.port -> unit Lwt.t
+  val thread_client : address:Sp.ip -> 
+    port:Sp.port -> (unit -> unit Lwt.t) -> unit Lwt.t
   val thread_server : address:Sp.ip -> port:Sp.port -> unit Lwt.t
 end
 
@@ -195,7 +195,7 @@ module Make (Handler : HandlerSig) = struct
         return ()
     done 
 
-let thread_client wakener_connect wakener_end ~address ~port =
+let thread_client ~address ~port init =
     (* Listen for UDP packets *)
   let _ = Lwt.ignore_result (echo_testing_server echo_port) in
   lwt fd = create_fd ~address ~port in
@@ -207,7 +207,5 @@ let thread_client wakener_connect wakener_end ~address ~port =
     in
       lwt _ = Lwt_unix.connect fd src in
       let _ = Nodes.set_server_signalling_channel fd in
-      Lwt.wakeup wakener_connect ();
-      lwt _ = process_channel fd src in
-         return (Lwt.wakeup wakener_end ())
+        (init ()) <&> (process_channel fd src )
 end

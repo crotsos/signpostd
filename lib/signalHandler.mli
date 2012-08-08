@@ -30,8 +30,7 @@ module type HandlerSig = sig
 end
 
 module type Functor = sig
-  val thread_client : unit Lwt.u -> unit Lwt.u ->
-                      address:Sp.ip -> port:Sp.port -> unit Lwt.t 
+  val thread_client : address:Sp.ip -> port:Sp.port -> (unit -> unit Lwt.t) -> unit Lwt.t 
   val thread_server : address:Sp.ip -> port:Sp.port -> unit Lwt.t
 end
 
