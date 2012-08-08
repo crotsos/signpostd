@@ -99,7 +99,8 @@ let preinstall_flows controller dpid port_id =
                ~dl_type:0x86dd () in
   let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:2
               ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
-              [OP.Flow.Output(OP.Port.No_port, 0)] () in 
+(*               [OP.Flow.Output(OP.Port.No_port, 0)]  *)
+              [] () in 
   let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
   lwt _ = OC.send_of_data controller dpid bs in
 
@@ -178,7 +179,7 @@ let register_handler flow cb =
              ~buffer_id:(-1) ~priority:100
               [OP.Flow.Output(OP.Port.Controller, 150)] () in 
   let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
-(*   lwt _ = OC.send_of_data controller dpid bs in *)
+  lwt _ = OC.send_of_data controller dpid bs in 
     return (Hashtbl.replace switch_data.cb_register flow cb)
 
 let unregister_handler flow_def cb = 
