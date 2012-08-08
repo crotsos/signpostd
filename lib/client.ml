@@ -209,6 +209,7 @@ let _ =
   let daemon_t = 
         join [ 
          signal_t ~port:(Int64.of_int Config.signal_port) (client_t);
+         Monitor.monitor_t ();
          dns_t ();
          Sp_controller.listen (); 
         ] in
