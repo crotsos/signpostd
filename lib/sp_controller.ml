@@ -73,7 +73,8 @@ let preinstall_flows controller dpid port_id =
                ~in_port:(OP.Port.int_of_port port_id)
                ~dl_dst:"\xff\xff\xff\xff\xff\xff" () in
   let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:2 
-              ~idle_timeout:0 ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local, 2000)] () in 
+              ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
+              [OP.Flow.Output(OP.Port.Local, 2000)] () in 
   let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
   lwt _ = OC.send_of_data controller dpid bs in
 
@@ -82,7 +83,8 @@ let preinstall_flows controller dpid port_id =
                ~in_port:(OP.Port.int_of_port port_id) 
                ~dl_dst:"\x01\x00\x5e\x00\x00\xfb" () in
   let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:2
-              ~idle_timeout:0 ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local, 2000)] () in 
+              ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
+              [OP.Flow.Output(OP.Port.Local, 2000)] () in 
   let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
   lwt _ = OC.send_of_data controller dpid bs in
 
@@ -96,7 +98,8 @@ let preinstall_flows controller dpid port_id =
                ~in_port:(OP.Port.int_of_port port_id)
                ~dl_type:0x86dd () in
   let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:2
-              ~idle_timeout:0 ~buffer_id:(-1) [OP.Flow.Output(OP.Port.No_port, 0)] () in 
+              ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
+              [OP.Flow.Output(OP.Port.No_port, 0)] () in 
   let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
   lwt _ = OC.send_of_data controller dpid bs in
 
