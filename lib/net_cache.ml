@@ -74,7 +74,7 @@ module Routing = struct
                         (string_rev (Re_str.matched_group 8 entry)))) in 
               [{ip;mask;gw;dev_id;local_ip=0l;}] @ (load_routing route)
           ) else (
-            Printf.printf "Failed to match entry\n%!";
+(*             Printf.printf "Failed to match entry\n%!"; *)
             load_routing route
           )
       with End_of_file -> []
@@ -94,9 +94,11 @@ module Routing = struct
               [{ip=fib.ip;mask=fib.mask;dev_id=fib.dev_id;gw=fib.gw;local_ip;}] @ 
               (filter_local_net_fib ips tail)
           with Not_found ->
+(*
             eprintf "Discarding routing entry %s,%s,%s\n%!" 
               (Uri_IP.ipv4_to_string fib.ip) (Uri_IP.ipv4_to_string fib.gw)
               (Uri_IP.ipv4_to_string fib.mask);
+ *)
             filter_local_net_fib ips tail
     in 
     let rec filter_default_gw_fib fibs = function
@@ -108,9 +110,11 @@ module Routing = struct
                 local_ip=local_fib.local_ip;}] @ 
               (filter_default_gw_fib fibs tail)
           with Not_found ->
+(*
             eprintf "Discarding routing entry %s,%s,%s\n%!" 
               (Uri_IP.ipv4_to_string fib.ip) (Uri_IP.ipv4_to_string fib.gw)
               (Uri_IP.ipv4_to_string fib.mask);
+ *)
             filter_default_gw_fib fibs tail      
         end
       | fib::tail -> filter_default_gw_fib fibs tail 
@@ -124,9 +128,11 @@ module Routing = struct
     let rec print_inner = function
       | [] -> ()
       | fib:: tail ->
+(*
           eprintf "Discarding routing entry %s/%s via %s through %s\n%!" 
               (Uri_IP.ipv4_to_string fib.ip) (Uri_IP.ipv4_to_string fib.mask)
               (Uri_IP.ipv4_to_string fib.gw)  (Uri_IP.ipv4_to_string fib.local_ip);
+ *)
           print_inner tail
     in
       print_inner routing_tbl.tbl 
@@ -216,14 +222,14 @@ module Port_cache = struct
 
 
   let port_id_of_mac mac =
-    Printf.printf "port_id_of_mac %s\n%!" (string_of_mac mac);
+(*     Printf.printf "port_id_of_mac %s\n%!" (string_of_mac mac); *)
     if(Hashtbl.mem mac_cache mac ) then
       Some(Hashtbl.find mac_cache mac )
     else 
       None
 
   let mac_of_port_id port_id =
-    Printf.printf "port_id_of_mac %d\n%!" port_id;
+(*     Printf.printf "port_id_of_mac %d\n%!" port_id; *)
     let ret = ref None in
     Hashtbl.iter (fun a b ->
                     if(b = port_id) then
@@ -237,9 +243,11 @@ module Arp_cache = struct
   let add_mapping mac ip = 
     (* Check if ip addr is local *)
     let (_,gw,_) = Routing.get_next_hop ip in
+(*
       Printf.printf "next-hop for %s is %s\n"
         (Uri_IP.ipv4_to_string ip)
         (Uri_IP.ipv4_to_string gw);
+ *)
       match gw with 
         | 0l -> (
             if (Hashtbl.mem cache ip) then 
@@ -247,8 +255,11 @@ module Arp_cache = struct
             else
               Hashtbl.add cache ip mac
           ) 
-        | _ -> Printf.printf "[net_cache] ip %s is not local. ignoring.\n%!"
+        | _ -> ()
+(*
+            Printf.printf "[net_cache] ip %s is not local. ignoring.\n%!"
                  (Uri_IP.ipv4_to_string ip)
+ *)
 
   let del_mapping ip = 
     (* Check if ip addr is local *)
@@ -258,8 +269,11 @@ module Arp_cache = struct
             if (Hashtbl.mem cache ip) then 
               Hashtbl.remove cache ip
           ) 
-        | _ -> Printf.printf "[net_cache] ip %s is not local. ignoring.\n%!"
+        | _ -> ()
+(*
+            Printf.printf "[net_cache] ip %s is not local. ignoring.\n%!"
                  (Uri_IP.ipv4_to_string ip)
+ *)
 
   let string_of_mac = function
     | "" -> ""
@@ -292,7 +306,7 @@ module Arp_cache = struct
       try 
         let ips = Re_str.split (Re_str.regexp " ") (input_line ip_stream) in 
         let dev::ip::mac::_ = ips in
-          Printf.printf "%s %s %s\n%!" dev ip mac; 
+(*           Printf.printf "%s %s %s\n%!" dev ip mac;  *)
           add_mapping (mac_of_string mac) (Uri_IP.string_to_ipv4 ip);
           Port_cache.add_mac (mac_of_string mac) 
             (OP.Port.int_of_port OP.Port.Local);
@@ -307,8 +321,10 @@ module Arp_cache = struct
         let ips = Re_str.split (Re_str.regexp "[ ]+") (input_line ip_stream) in
         let ip = Uri_IP.string_to_ipv4 (List.nth ips 0) in
         let mac = mac_of_string (List.nth ips 3) in
+(*
            Printf.printf "%s %s %s \n%!" (string_of_mac mac)  
              (Uri_IP.ipv4_to_string ip); 
+ *)
            add_mapping mac ip;
            read_arp_cache ip_stream
       with 
@@ -334,7 +350,7 @@ module Arp_cache = struct
     
   let get_next_hop_mac dst = 
     let (_, gw, _) = Routing.get_next_hop dst in
-      Printf.printf "looking up for %s\n%!" (Uri_IP.ipv4_to_string gw);
+(*       Printf.printf "looking up for %s\n%!" (Uri_IP.ipv4_to_string gw); *)
       match gw with 
         | 0l -> mac_of_ip dst
         | ip -> mac_of_ip ip    
