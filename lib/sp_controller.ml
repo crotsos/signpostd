@@ -60,7 +60,7 @@ let switch_data = { mac_cache = Hashtbl.create 0;
                     cb_register = (Hashtbl.create 64);
                   } 
 
-let preinstall_flows controller dpid port_id actions = 
+let preinstall_flows controller dpid port_id = 
   (* A few rules to reduce load on the control channel *)
   let flow_wild = OP.Wildcards.({
     in_port=false; dl_vlan=true; dl_src=true; dl_dst=false;
@@ -72,8 +72,8 @@ let preinstall_flows controller dpid port_id actions =
   let flow = OP.Match.create_flow_match flow_wild 
                ~in_port:(OP.Port.int_of_port port_id)
                ~dl_dst:"\xff\xff\xff\xff\xff\xff" () in
-  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-              ~idle_timeout:0 ~buffer_id:(-1) actions () in 
+  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:2 
+              ~idle_timeout:0 ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local, 2000)] () in 
   let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
   lwt _ = OC.send_of_data controller dpid bs in
 
@@ -81,12 +81,12 @@ let preinstall_flows controller dpid port_id actions =
   let flow = OP.Match.create_flow_match flow_wild 
                ~in_port:(OP.Port.int_of_port port_id) 
                ~dl_dst:"\x01\x00\x5e\x00\x00\xfb" () in
-  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-              ~idle_timeout:0 ~buffer_id:(-1) actions () in 
+  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:2
+              ~idle_timeout:0 ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local, 2000)] () in 
   let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
   lwt _ = OC.send_of_data controller dpid bs in
 
-  (* forward ipv6 traffic without asking 0x86dd *)
+  (* drop ipv6 traffic *)
   let flow_wild = OP.Wildcards.({
     in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
     dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
@@ -95,10 +95,25 @@ let preinstall_flows controller dpid port_id actions =
   let flow = OP.Match.create_flow_match flow_wild 
                ~in_port:(OP.Port.int_of_port port_id)
                ~dl_type:0x86dd () in
-  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-              ~idle_timeout:0 ~buffer_id:(-1) actions () in 
+  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:2
+              ~idle_timeout:0 ~buffer_id:(-1) [OP.Flow.Output(OP.Port.No_port, 0)] () in 
   let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
   lwt _ = OC.send_of_data controller dpid bs in
+
+  (* forward multicast traffic to local port *)
+  let flow_wild = OP.Wildcards.({
+    in_port=false; dl_vlan=true; dl_src=true; dl_dst=false;
+    dl_type=true; nw_proto=true; tp_dst=true; tp_src=true;
+    nw_dst=(char_of_int 32); nw_src=(char_of_int 32);
+    dl_vlan_pcp=true; nw_tos=true;}) in
+  let flow = OP.Match.create_flow_match flow_wild 
+               ~in_port:(OP.Port.int_of_port port_id)
+               ~dl_dst:"\xd8\x5d\x4c\xf9\x8a\x9a" () in
+  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:2
+              ~idle_timeout:0 ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local, 0)] () in 
+  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+  lwt _ = OC.send_of_data controller dpid bs in
+
   return ()
 
 let datapath_join_cb controller dpid evt =
@@ -115,36 +130,37 @@ let datapath_join_cb controller dpid evt =
       fun port -> 
         let _ = Net_cache.Port_cache.add_dev 
           port.OP.Port.name port.OP.Port.port_id in
-        let actions = [OP.Flow.Output(OP.Port.Local, 2000);] in
           match port.OP.Port.port_id with
             | 0xfffe -> ()
             | _ ->
-          (Lwt.ignore_result 
-            (preinstall_flows controller dpid 
-               (OP.Port.port_of_int port.OP.Port.port_id) actions);
-          action_ports := !action_ports @ 
-            [OP.Flow.Output((OP.Port.port_of_int port.OP.Port.port_id),
-                            2000);])
+                Lwt.ignore_result (
+                   preinstall_flows controller dpid 
+                   (OP.Port.port_of_int port.OP.Port.port_id))
     ) ports;
-  lwt _ = preinstall_flows controller dpid OP.Port.Local (!action_ports) in 
+(*   lwt _ = preinstall_flows controller dpid OP.Port.Local ([]) in  *)
   switch_data.dpid <- switch_data.dpid @ [dp];
   return (pp "+ datapath:0x%012Lx\n%!" dp)
 
-let port_status_cb _ _ evt =
+let port_status_cb controller dpid evt =
   let _ = 
     match evt with
       | OE.Port_status (OP.Port.ADD, port, _) -> 
           pp "[openflow] device added %s %d\n%!" 
             port.OP.Port.name port.OP.Port.port_id;
+          lwt _ = preinstall_flows controller dpid 
+             (OP.Port.port_of_int port.OP.Port.port_id) in
           Net_cache.Port_cache.add_dev port.OP.Port.name 
-            port.OP.Port.port_id
+            port.OP.Port.port_id;
+          return ()
       | OE.Port_status (OP.Port.DEL, port, _) -> 
           pp "[openflow] device removed %s %d\n%!" 
             port.OP.Port.name port.OP.Port.port_id;
-          Net_cache.Port_cache.del_dev port.OP.Port.name
+          Net_cache.Port_cache.del_dev port.OP.Port.name;
+          return ()
       | OE.Port_status (OP.Port.MOD, port, _) -> 
           pp "[openflow] device modilfied %s %d\n%!" 
-            port.OP.Port.name port.OP.Port.port_id
+            port.OP.Port.name port.OP.Port.port_id;
+          return ()
       | _ -> invalid_arg "bogus datapath_join event match!" 
   in
     return ()
