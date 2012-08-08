@@ -98,7 +98,6 @@ let dump_tunnels () =
                    | None -> 
                        r
                    | Some(tactic) ->
-                       printf "XXXXXXXXXXXX found a tactic %s for %s - %s\n%!" tactic cl s;
                        match (cl, s) with
                          | ("home", _) -> 
                           (r @ 
@@ -124,10 +123,12 @@ let dump_tunnels () =
               ) 
               connections out in
   let str_out = Json.to_string (Json.Array res) in 
+(*
   let _ = 
     if ((List.length res) > 0) then
       printf "%s\n%!" str_out
   in
+ *)
   let output = open_out file in 
   let _ = output_string output str_out in 
   let _ = close_out output in 
