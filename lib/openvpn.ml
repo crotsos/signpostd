@@ -423,7 +423,7 @@ module Manager = struct
     let dl_src = Net_cache.Arp_cache.mac_of_string dl_src in
     let data = BITSTRING
        {"\xff\xff\xff\xff\xff\xff":48:string; dl_src:48:string; 0x0806:16; 
-        1:16; 0x0800:16; 6:8; 4:6; 1:16; dl_src:48:string; nw_src:32;
+        1:16; 0x0800:16; 6:8; 4:8; 1:16; dl_src:48:string; nw_src:32;
         "\x00\x00\x00\x00\x00\x00":48:string;nw_src:32} in
     let pkt = 
           OP.Packet_out.create ~buffer_id:(-1l) 
@@ -479,7 +479,6 @@ module Manager = struct
           List.map Uri_IP.string_to_ipv4 
             [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] in 
         let dev_id = ref None in 
-        lwt _ = send_gratuitous_arp (Uri_IP.ipv4_to_string local_ip) in 
         let _ = 
           Hashtbl.iter 
             (fun _ conn -> 
@@ -490,6 +489,7 @@ module Manager = struct
             | Some (dev) ->
                 lwt _ = setup_flows (sprintf "tap%d" dev) mac_addr 
                           local_ip remote_ip local_sp_ip remote_sp_ip in
+                lwt _ = Lwt_unix.sleep 1.0 in
                 lwt _ = send_gratuitous_arp (Uri_IP.ipv4_to_string local_ip) in 
                   return true
       with e -> 
