@@ -479,6 +479,7 @@ module Manager = struct
           List.map Uri_IP.string_to_ipv4 
             [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] in 
         let dev_id = ref None in 
+        lwt _ = send_gratuitous_arp (Uri_IP.ipv4_to_string local_ip) in 
         let _ = 
           Hashtbl.iter 
             (fun _ conn -> 
