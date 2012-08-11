@@ -184,7 +184,7 @@ module Manager = struct
                     OP.Flow.Output((OP.Port.port_of_int port), 
                                    2000);] in
     let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:tactic_priority ~idle_timeout:0 
+                ~priority:tactic_priority ~idle_timeout:0 ~hard_timeout:0 
                 ~buffer_id:(-1) actions () in 
     let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
     lwt _ = OC.send_of_data controller dpid bs in
@@ -200,7 +200,7 @@ module Manager = struct
                  ~in_port:(OP.Port.int_of_port OP.Port.Local) ~dl_type:0x0806
                  ~nw_src:local_ip ~nw_dst:rem_ip () in
     let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:tactic_priority ~idle_timeout:0 
+                ~priority:tactic_priority ~idle_timeout:0  ~hard_timeout:0
                 ~buffer_id:(-1) [OP.Flow.Output((OP.Port.port_of_int port),2000)] () in 
     let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
     lwt _ = OC.send_of_data controller dpid bs in
@@ -208,7 +208,7 @@ module Manager = struct
                  ~in_port:(port) ~dl_type:0x0806
                  ~nw_src:local_ip ~nw_dst:rem_ip () in
     let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:tactic_priority ~idle_timeout:0 
+                ~priority:tactic_priority ~idle_timeout:0  ~hard_timeout:0
                 ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local,2000)] () in 
     let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
     lwt _ = OC.send_of_data controller dpid bs in
