@@ -31,6 +31,8 @@ exception Nat_error
 
 let name () = "natpanch"
 
+let natpanch_weight = 2
+
 (* a struct to store details for each node participating in a 
  * tunnel formation*)
 type natpanch_client_state_type = {
@@ -67,6 +69,13 @@ let get_state a b =
       Hashtbl.add natpanch_state.conns key ret;
       ret
   )
+
+(* 
+ * weight function
+ * *)
+
+let weight a b = 
+  natpanch_weight 
 
 (*
  * Testing methods 
@@ -201,7 +210,7 @@ let handle_notification _ method_name arg_list =
             Printf.printf "dst_mac:%s, src_mac:%s\n%!" (Nodes.get_node_mac b) 
               (Nodes.get_node_mac a);
           let pkt = Tcp.gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
-                      mac_b "\xff\xff\xff\xff\xff\xff" ip_a ip_b
+                      mac_b "\xf0\xad\x4e\x00\xcb\xab" ip_a ip_b
                       (int_of_string tp_dst) (int_of_string tp_src)
           in
           let bs_a = (OP.Packet_out.packet_out_to_bitstring 
@@ -209,18 +218,18 @@ let handle_notification _ method_name arg_list =
                       ~actions:[OP.(Flow.Output(port, 2000))]
                       ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
 
-          let pkt = Tcp.gen_server_synack (Int32.of_string ack) (Int32.of_string isn)
-                      mac_a "\xff\xff\xff\xff\xff\xff" ip_b ip_a
+          let pkt = Tcp.gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
+                      mac_a "\xf0\xad\x4e\x00\xcb\xab" ip_b ip_a
                       (int_of_string tp_src) (int_of_string tp_dst)
           in
           let bs_b = (OP.Packet_out.packet_out_to_bitstring 
                       (OP.Packet_out.create ~buffer_id:(-1l)
                       ~actions:[OP.(Flow.Output(port, 2000))]
-                      ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
-          lwt _ =  OC.send_of_data controller dpid bs_a in
+                      ~data:pkt ~in_port:(OP.Port.No_port) () )) in 
           lwt _ =  OC.send_of_data controller dpid bs_b in
+          lwt _ =  Lwt_unix.sleep 1.0 in
           lwt _ =  OC.send_of_data controller dpid bs_a in
-            OC.send_of_data controller dpid bs_b
+            return ()
 
         with exn ->
           eprintf "[natpanch]notification error: %s\n%!" 

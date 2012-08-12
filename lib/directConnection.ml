@@ -22,6 +22,7 @@ exception Direct_error
 
 let name () = "direct"
 let direct_port = 10001
+let direct_weight = 1
 
 (* a struct to store details for each node participating in a 
  * tunnel formation*)
@@ -65,6 +66,13 @@ let get_state a b =
       Hashtbl.add state.conns key ret;
       ret
   )
+
+(* 
+ * weight function
+ * *)
+
+let weight a b = 
+  direct_weight 
 
 (*
  * Testing methods 

@@ -28,6 +28,8 @@ exception Ssh_error
 let name () = "ssh"
 let ssh_port = 10000
 
+let ssh_weight = 8
+
 (* a struct to store details for each node participating in a 
  * tunnel formation *)
 type ssh_client_state_type = {
@@ -92,6 +94,22 @@ let get_state a b =
       Hashtbl.add state.conns key ret;
       ret
   )
+
+(* 
+ * weight function
+ * *)
+
+let weight a b = 
+  let key = gen_key a b in
+    try 
+      let conn = Hashtbl.find state.conns key in 
+        if (conn.direction = 3) then
+          ssh_weight 
+        else 
+          (ssh_weight/2)
+    with Not_found ->
+      100
+
 
 (*
  * testing code

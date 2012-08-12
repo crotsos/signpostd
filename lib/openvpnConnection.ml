@@ -32,6 +32,8 @@ exception Openvpn_error
 
 let openvpn_port = 1194
 
+let openvpn_weight = 6
+
 let name () = "openvpn"
 
 (* a struct to store details for each node participating in a 
@@ -89,6 +91,21 @@ let get_state a b =
       Hashtbl.add state.conns key ret;
       ret
   )
+
+(* 
+ * weight function
+ * *)
+
+let weight a b = 
+  let key = gen_key a b in
+    try 
+      let conn = Hashtbl.find state.conns key in 
+        if (conn.direction = 3) then
+          openvpn_weight 
+        else 
+          (openvpn_weight/2)
+    with Not_found ->
+      100
 
 (*
  * Testing methods 
