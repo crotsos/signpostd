@@ -18,19 +18,22 @@ open Lwt
 open Printf
 open List
 
-type link_state = 
+type tactic_state = 
   | SUCCESS_INACTIVE
   | SUCCESS_ACTIVE
   | IN_PROGRESS
   | FAILED
+type link_state = 
+  | IDLE
+  | PROCESSING
 
 type tunnel_state = {
   (* Current state ofthe tunnel *)
-  mutable tactic_state : link_state;
+  mutable tactic_state : tactic_state;
   (*
    * Cache what was the result of the last try.
   * *)
-  mutable last_res : link_state;
+  mutable last_res : tactic_state;
   (* A connection identification in order to be able to tear down 
    * connections.
   * *)
@@ -50,7 +53,7 @@ type tunnel_state = {
 
 type connection_state = {
   wait: unit Lwt_condition.t; 
-  mutable link: link_state;
+  mutable link_state : link_state; 
   tactic : (string, tunnel_state) Hashtbl.t;
 }
 
@@ -73,6 +76,34 @@ let construct_key a b =
 
 (**********************************************************************
  * Public API *********************************************************)
+let set_link_status a b link_state = 
+  let key = construct_key a b in
+  try 
+    let link = Hashtbl.find connections key in
+      link.link_state <-  link_state
+  with Not_found -> 
+    let link = {wait=(Lwt_condition.create ()); link_state;
+                tactic=(Hashtbl.create 16);} in 
+      Hashtbl.add connections key link
+
+let get_link_status a b = 
+  let key = construct_key a b in
+  try 
+    let link = Hashtbl.find connections key in 
+      link.link_state
+  with Not_found -> 
+    let link = {wait=(Lwt_condition.create ()); link_state=IDLE;
+                tactic=(Hashtbl.create 16);} in 
+      Hashtbl.add connections key link;
+      IDLE
+
+let notify_waiters  a b = 
+  let key = construct_key a b in
+  try 
+    let link = Hashtbl.find connections key in 
+      Lwt_condition.broadcast link.wait ()
+  with Not_found -> 
+    ()
 
 let get_link_active_tactic a b =
   let key = construct_key a b in
@@ -139,18 +170,19 @@ let store_tactic_state a b tactic_name link_state conn_id =
   let link = match (Hashtbl.mem connections key) with
     | true -> Hashtbl.find connections key
     | false -> 
-        let link = {wait=(Lwt_condition.create ()); link=link_state;
+        let link = {wait=(Lwt_condition.create ()); link_state=IDLE;
         tactic=(Hashtbl.create 16);} in 
           Hashtbl.add connections key link;
           link
   in
   let _ = 
      match link_state with 
-       | IN_PROGRESS -> ()
-       | _ ->
+       | SUCCESS_INACTIVE 
+       | IN_PROGRESS 
+       | FAILED -> ()
+       | SUCCESS_ACTIVE ->
            Lwt_condition.broadcast link.wait ()
    in 
-    link.link <- link_state;
     let conn = 
       if (Hashtbl.mem link.tactic tactic_name) then
         Hashtbl.find link.tactic tactic_name
@@ -165,25 +197,65 @@ let store_tactic_state a b tactic_name link_state conn_id =
       conn.tactic_state <- link_state;
         ()
 
+(*
+ * SUCCESS_ACTIVE,   SUCCESS_ACTIVE   
+ * SUCCESS_ACTIVE,   SUCCESS_INACTIVE 
+ * SUCCESS_ACTIVE,   FAILED            
+ * SUCCESS_ACTIVE,   IN_PROGRESS       
+ * SUCCESS_INACTIVE, SUCCESS_ACTIVE  
+ * FAILED            SUCCESS_ACTIVE   
+ * IN_PROGRESS       SUCCESS_ACTIVE  
+ * SUCCESS_INACTIVE, SUCCESS_INACTIVE
+ * SUCCESS_INACTIVE, FAILED          
+ * SUCCESS_INACTIVE, IN_PROGRESS     
+ * FAILED            FAILED          
+ * FAILED            SUCCESS_INACTIVE
+ * IN_PROGRESS       SUCCESS_INACTIVE
+
+ * FAILED            IN_PROGRESS     
+ * IN_PROGRESS       FAILED          
+ * IN_PROGRESS       IN_PROGRESS     
+* *)
+
+
+
+let get_link_connection_status a b =
+  let key = construct_key a b in
+  try
+    let conn = Hashtbl.find connections key in
+      Hashtbl.fold (
+        fun t st r ->
+          match ( r, st.tactic_state) with
+            | (SUCCESS_ACTIVE, _) ->
+                r
+            | (_, SUCCESS_ACTIVE) ->
+                st.tactic_state 
+            | (SUCCESS_INACTIVE, _) ->
+                r
+            | (_, SUCCESS_INACTIVE) ->
+                st.tactic_state 
+            | (IN_PROGRESS, _) ->
+                r
+            | (_, IN_PROGRESS) -> 
+                st.tactic_state 
+            | (FAILED, FAILED) -> 
+                r) 
+        conn.tactic FAILED 
+  with Not_found ->
+    FAILED
+
 let wait_for_link a b =
   let key = construct_key a b in
   try
     let conn = Hashtbl.find connections key in 
-      match conn.link with
+      match (get_link_connection_status a b) with
         | IN_PROGRESS ->
             lwt _ = Lwt_condition.wait conn.wait  in
-              return(conn.link)
-        | _ -> return(conn.link)
+              return((get_link_connection_status a b))
+        | a -> return(a)
   with Not_found ->
     return(FAILED)
 
-let get_link_status a b =
-  let key = construct_key a b in
-  try
-    let conn = Hashtbl.find connections key in 
-      conn.link
-  with Not_found ->
-    FAILED
 
 
 let get_tactic_status a b tactic_name =

@@ -15,11 +15,14 @@
  *)
 
 
-type link_state = 
+type tactic_state = 
   | SUCCESS_INACTIVE
   | SUCCESS_ACTIVE
   | IN_PROGRESS
   | FAILED
+type link_state = 
+  | IDLE
+  | PROCESSING
 
 (* val lookup : Sp.name -> Sp.name -> Sp.addressable list *)
 
@@ -31,7 +34,7 @@ type link_state =
 val store_addresses : Sp.name -> Sp.name -> Rpc.tactic_name -> status -> (Sp.ip * Sp.ip) list -> unit
  *)
 val store_tactic_state : Sp.name -> Sp.name -> 
-      Rpc.tactic_name -> link_state -> int option -> unit
+      Rpc.tactic_name -> tactic_state -> int option -> unit
 
 (** Stores all known public IPs for a named entity.
  *  It should not be used to store new public IPs that result
@@ -43,21 +46,22 @@ val store_tactic_state : Sp.name -> Sp.name ->
  *  a pair of nodes. Raises Not_found, if a tactic has
  *  not previously been run for the named pair 
  *)
-val wait_for_link : Sp.name -> Sp.name -> link_state Lwt.t
-
+val wait_for_link : Sp.name -> Sp.name -> tactic_state Lwt.t
+val notify_waiters: Sp.name -> Sp.name -> unit
 val get_link_active_tactic : Sp.name -> Sp.name -> string option 
 
 (** Returns the status of a previously run tactic for
  *  a pair of nodes. Raises Not_found, if a tactic has
  *  not previously been run for the named pair 
  *)
-val get_link_status : Sp.name -> Sp.name -> link_state
-
+val get_link_connection_status : Sp.name -> Sp.name -> tactic_state
+val get_link_status : Sp.name -> Sp.name -> link_state 
+val set_link_status : Sp.name -> Sp.name -> link_state -> unit
 (** Returns the status of a previously run tactic for
  *  a pair of nodes. Raises Not_found, if a tactic has
  *  not previously been run for the named pair 
  *)
 val get_tactic_status : Sp.name -> Sp.name -> 
-  Rpc.tactic_name -> link_state
+  Rpc.tactic_name -> tactic_state
 
 val dump_tunnels: unit -> unit Lwt.t
