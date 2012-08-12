@@ -121,7 +121,7 @@ module Make (Handler : HandlerSig) = struct
                           src_ip=(Uri_IP.string_to_ipv4(Unix.string_of_inet_addr a)); 
                           src_port=0; cmd=Some(rpc);}
                   in 
-                    lwt _ = dispatch_rpc sock msg in 
+                  let _ = Lwt.ignore_result (dispatch_rpc sock msg) in 
                     process_buffer ()
               end
         in
@@ -132,11 +132,9 @@ module Make (Handler : HandlerSig) = struct
             | 0 -> begin 
                 (* TODO: Propagate an event to engine to serverSignal to clean up 
                  * state for node *)
-                match (Lwt_unix.getsockopt_error sock) with
-                  | None -> process_buffer ()
-                  | Some(err) ->
-                      Printf.printf "[signal] session terminated with end-node %s : %s\n%!"
-                        (sockaddr_to_string dst) (Unix.error_message err);
+                printf "Channel read 0 bytes\n%!";
+                Printf.printf "[signal] session terminated with end-node %s\n%!"
+                  (sockaddr_to_string dst);
                 running := false;
                 return () 
               end
