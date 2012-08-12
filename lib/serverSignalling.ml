@@ -102,6 +102,9 @@ let handle_notification fd ip command arg_list =
     eprintf "register_mobile_host with args %s\n%!" 
     (String.concat ", " arg_list);
       return (Connections.store_tactic_state a b "direct" Connections.SUCCESS_ACTIVE None)
+  | Command("tactic_disconnected") ->
+      let a::b::tactic::_ = arg_list in 
+        Engine.disconnect a b tactic 
   | Command("exec_tactic") -> 
     begin 
       try
