@@ -53,23 +53,36 @@ let connect_client ip port =
 let monitor_state = 
   {monitored_ips = (Hashtbl.create 32);}
 
+let print_monitors () =
+  Hashtbl.iter (
+    fun k v ->
+      printf "monitoring %s...\n%!" k
+  ) monitor_state.monitored_ips
+
+
 let add_dst ip dst_name tactic_name = 
   let key = String.concat ip ["-"; tactic_name] in 
-  if (not (Hashtbl.mem monitor_state.monitored_ips key) ) then
-    Hashtbl.add monitor_state.monitored_ips key {dst_name; tactic_name; dst_ip=ip;}
+  if (not (Hashtbl.mem monitor_state.monitored_ips key) ) then (
+    Hashtbl.add monitor_state.monitored_ips key {dst_name; tactic_name; dst_ip=ip;};
+    print_monitors ()
+  )
 
 let del_dst ip tactic_name = 
   let key = String.concat ip ["-"; tactic_name] in 
-  if (not (Hashtbl.mem monitor_state.monitored_ips key) ) then
-    Hashtbl.remove monitor_state.monitored_ips key
+  if (Hashtbl.mem monitor_state.monitored_ips key) then (
+    Hashtbl.remove monitor_state.monitored_ips key;
+    print_monitors ()
+  )
+
 
 let test_sp_dst (ip,state) = 
   try_lwt 
     (connect_client state.dst_ip 11000) 
-  with MonitorDisconnect -> 
+  with _ -> 
     let args = [(Nodes.get_local_name ()); state.dst_name; state.tactic_name;] in
     let rpc = Rpc.create_notification "tactic_disconnected" args in 
-    lwt _ = Nodes.send_to_server rpc in 
+    lwt _ = Nodes.send_to_server rpc in
+    let _ = del_dst ip state.tactic_name in 
     printf "disconnect %s from tactic %s\n%!" state.tactic_name state.dst_name;
     return ()
 
@@ -80,6 +93,6 @@ let monitor_t () =
       Lwt_list.iter_p test_sp_dst (Hashtbl.fold (fun k v r -> r @ [(k,v)]) 
         monitor_state.monitored_ips []) 
     with exn ->
-      printf "[monitor] error : %s\n" (Printexc.to_string exn);
+      printf "XXXXXXXXXX [monitor] error : %s\n" (Printexc.to_string exn);
       return ()
   done
