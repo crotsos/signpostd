@@ -481,11 +481,18 @@ module Manager = struct
           List.map Uri_IP.string_to_ipv4 
             [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] in 
         let dev_id = ref None in 
-        let _ = 
-          Hashtbl.iter 
-            (fun _ conn -> 
-               if (conn.conn_id = conn_id) then
-                 dev_id := Some(conn.dev_id)) conn_db.conns in 
+        let Some(conn) = 
+          Hashtbl.fold 
+            (fun _ conn -> function
+               | None -> 
+                   if (conn.conn_id = conn_id) then (
+                     dev_id := Some(conn.dev_id);
+                     Some(conn)
+                   ) else (
+                     None
+                   )
+               | Some(r) -> Some(r)
+            ) conn_db.conns None in 
           match (!dev_id) with
             | None -> raise (OpenVpnError(("openvpn enable invalid conn_id")))
             | Some (dev) ->
@@ -493,6 +500,8 @@ module Manager = struct
                           local_ip remote_ip local_sp_ip remote_sp_ip in
                 lwt _ = Lwt_unix.sleep 1.0 in
                 lwt _ = send_gratuitous_arp (Uri_IP.ipv4_to_string local_ip) in 
+                let _ = Monitor.add_dst (Uri_IP.ipv4_to_string remote_sp_ip) 
+                          conn.rem_node "openvpn" in
                   return true
       with e -> 
         eprintf "[openvpn] server error: %s\n%!" (Printexc.to_string e); 
@@ -585,7 +594,8 @@ module Manager = struct
                   (* disable required openflow flows *)
                 lwt _ = unset_flows (sprintf "tap%d" dev) local_tun_ip 
                           remote_sp_ip in
-                    return ("true")
+                let _ = Monitor.del_dst (Uri_IP.ipv4_to_string remote_sp_ip) "openvpn" in
+                   return ("true")
         with exn ->
           raise (OpenVpnError((Printexc.to_string exn)))
       | _ -> (
