@@ -65,3 +65,4 @@ val get_tactic_status : Sp.name -> Sp.name ->
   Rpc.tactic_name -> tactic_state
 
 val dump_tunnels: unit -> unit Lwt.t
+val get_active_connections: unit -> (string * string) list 

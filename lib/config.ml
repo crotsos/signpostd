@@ -37,6 +37,6 @@ let dns_port = 5354
 let rpc_timeout = 5 * 6
 let monitor_timeout = 2.0
 let monitor_interval = 5.0
-
+let tunnel_check_interval = 30.0 
 
 let net_intf = "eth0"

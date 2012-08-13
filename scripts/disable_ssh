@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+/sbin/iptables -A INPUT -p tcp --destination-port 10000 -j DROP
+/sbin/iptables -A OUTPUT -p tcp --dport 10000 -j DROP

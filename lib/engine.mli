@@ -26,3 +26,5 @@ val tactic_by_name : Rpc.tactic_name -> (module Sp.TacticSig) option
 val connect_using_tactic : string -> string -> string -> bool Lwt.t
 val dump_tunnels_t: unit -> unit Lwt.t
 val disconnect: string -> string -> string -> unit Lwt.t
+
+val tunnel_monitor_t: unit -> unit Lwt.t
