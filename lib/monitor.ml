@@ -22,6 +22,7 @@ open Printf
 exception MonitorDisconnect  
 
 type monitor_det = {
+  dst_ip: string;
   tactic_name:string;
   dst_name: string;
 }
@@ -53,16 +54,18 @@ let monitor_state =
   {monitored_ips = (Hashtbl.create 32);}
 
 let add_dst ip dst_name tactic_name = 
-  if (not (Hashtbl.mem monitor_state.monitored_ips ip) ) then
-    Hashtbl.add monitor_state.monitored_ips ip {dst_name; tactic_name; }
+  let key = String.concat ip ["-"; tactic_name] in 
+  if (not (Hashtbl.mem monitor_state.monitored_ips key) ) then
+    Hashtbl.add monitor_state.monitored_ips key {dst_name; tactic_name; dst_ip=ip;}
 
-let del_dst ip = 
-  if (not (Hashtbl.mem monitor_state.monitored_ips ip) ) then
-    Hashtbl.remove monitor_state.monitored_ips ip
+let del_dst ip tactic_name = 
+  let key = String.concat ip ["-"; tactic_name] in 
+  if (not (Hashtbl.mem monitor_state.monitored_ips key) ) then
+    Hashtbl.remove monitor_state.monitored_ips key
 
 let test_sp_dst (ip,state) = 
   try_lwt 
-    (connect_client ip 11000) 
+    (connect_client state.dst_ip 11000) 
   with MonitorDisconnect -> 
     let args = [(Nodes.get_local_name ()); state.dst_name; state.tactic_name;] in
     let rpc = Rpc.create_notification "tactic_disconnected" args in 
