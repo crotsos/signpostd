@@ -38,3 +38,10 @@ Executable send_cmd
   Install:            false
   BuildDepends:       signpost
 
+Executable connections_test
+  Path:               lib
+  MainIs:             conn_test.ml
+  Custom:             false
+  CompiledObject:     best
+  Install:            false
+  BuildDepends:       signpost

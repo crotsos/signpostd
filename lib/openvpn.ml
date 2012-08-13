@@ -59,7 +59,8 @@ module Manager = struct
   let rec get_port dev = 
     match ( Net_cache.Port_cache.dev_to_port_id dev) with
       | Some(port) -> return (port)
-      | None -> lwt _ = Lwt_unix.sleep 1.0 in (get_port dev)
+      | None -> raise (OpenVpnError((Printf.sprintf "Invalid port %s" dev)))
+(*           lwt _ = Lwt_unix.sleep 1.0 in (get_port dev) *)
 (*******************************************************
  *             Testing code 
  *******************************************************)
@@ -565,6 +566,7 @@ module Manager = struct
   let disable kind  args =
     match kind with 
       | "disable" ->
+        try_lwt 
           let conn_id::local_tun_ip::remote_sp_ip::_ = args in
           let conn_id = Int32.of_string conn_id in
           let [local_tun_ip; remote_sp_ip;] = 
@@ -580,9 +582,11 @@ module Manager = struct
               | None -> raise (OpenVpnError("teardown invalid conn_id"))
               | Some (dev) ->
                   (* disable required openflow flows *)
-                lwt _ = unset_flows (string_of_int dev) local_tun_ip 
+                lwt _ = unset_flows (sprintf "tap%d" dev) local_tun_ip 
                           remote_sp_ip in
                     return ("true")
+        with exn ->
+          raise (OpenVpnError((Printexc.to_string exn)))
       | _ -> (
           printf "[openvpn] teardown action %s not supported in test" kind;
           return ("false"))

@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 5526a7a1c60a6e71195925e00ed0a7eb)
+# DO NOT EDIT (digest: d915d9a284268e69741c16f3ce309e5b)
 # Ignore VCS directories, you can use the same kind of rule outside 
 # OASIS_START/STOP if you want to exclude directories that contains 
 # useless stuff for the build process
@@ -56,6 +56,17 @@
 <lib/remoteControl.{native,byte}>: pkg_openflow
 <lib/remoteControl.{native,byte}>: pkg_crypto_keys
 <lib/remoteControl.{native,byte}>: pkg_bitstring
+# Executable connections_test
+<lib/conn_test.{native,byte}>: use_signpost
+<lib/conn_test.{native,byte}>: pkg_lwt.syntax
+<lib/conn_test.{native,byte}>: pkg_lwt
+<lib/conn_test.{native,byte}>: pkg_re
+<lib/conn_test.{native,byte}>: pkg_lwt.unix
+<lib/conn_test.{native,byte}>: pkg_uri
+<lib/conn_test.{native,byte}>: pkg_re.str
+<lib/conn_test.{native,byte}>: pkg_openflow
+<lib/conn_test.{native,byte}>: pkg_crypto_keys
+<lib/conn_test.{native,byte}>: pkg_bitstring
 <lib/*.ml{,i}>: use_signpost
 <lib/*.ml{,i}>: pkg_lwt.syntax
 <lib/*.ml{,i}>: pkg_lwt

@@ -26,6 +26,11 @@ type tactic_state =
 type link_state = 
   | IDLE
   | PROCESSING
+let string_of_link_state = function
+  | SUCCESS_INACTIVE -> "SUCCESS_INACTIVE"
+  | SUCCESS_ACTIVE   -> "SUCCESS_ACTIVE"  
+  | IN_PROGRESS      -> "IN_PROGRESS"     
+  | FAILED           -> "FAILED"          
 
 type tunnel_state = {
   (* Current state ofthe tunnel *)
@@ -104,6 +109,19 @@ let notify_waiters  a b =
       Lwt_condition.broadcast link.wait ()
   with Not_found -> 
     ()
+
+let print_tactics_state a b =                                                     
+  let key = construct_key a b in                                                  
+  try                                                                             
+    let conn = Hashtbl.find connections key in                                    
+    let _ = Hashtbl.iter (                                                        
+      fun name tact ->                                                            
+        printf "--> %s ->\t %s\n%!" name (string_of_link_state tact.tactic_state) 
+    ) conn.tactic in  
+        ()                                                            
+  with Not_found ->                                                               
+    printf "link not found %s - %s\n%!" a b                                       
+
 
 let get_link_active_tactic a b =
   let key = construct_key a b in
@@ -195,6 +213,7 @@ let store_tactic_state a b tactic_name link_state conn_id =
     in 
       conn.conn_id <- conn_id;
       conn.tactic_state <- link_state;
+      print_tactics_state a b;
         ()
 
 (*
