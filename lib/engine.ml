@@ -55,7 +55,7 @@ let get_tactic_module name =
     failwith (sprintf "Tactic '%s' not found \n%!" name)
 
 let disable_tactic tactic a b = 
-  Printf.printf "using tactic %s to connect %s %s\n%!" tactic a b; 
+  Printf.printf "using tactic %s to disable %s %s\n%!" tactic a b; 
   try_lwt
     lwt t = Lwt_list.find_s ( fun t -> 
     let module Tactic = (val t : Sp.TacticSig) in
@@ -209,17 +209,6 @@ let dump_tunnels_t () =
   in 
     return ()
 
-let disconnect a b tactic =
-    match (Connections.get_tactic_status a b tactic) with
-        (* If I am trying to connect or I am disconnected, 
-         * then I can disregard the message *)
-      | Connections.IN_PROGRESS 
-      | Connections.FAILED ->
-          return ()
-      | Connections.SUCCESS_ACTIVE 
-      | Connections.SUCCESS_INACTIVE -> 
-          return ()
-
 let find a b =
   eprintf "Finding existing connections between %s and %s\n" a b;
   try_lwt
@@ -253,4 +242,42 @@ let find a b =
   with _ ->
     Printf.printf "[Nodes] cannot find node %s \n%!" b;
     return(Sp.Unreachable)
+
+let disconnect a b tactic =
+    match (Connections.get_tactic_status a b tactic) with
+        (* If I am trying to connect or I am disconnected, 
+         * then I can disregard the message *)
+      | Connections.IN_PROGRESS 
+      | Connections.FAILED ->
+          return ()
+      | Connections.SUCCESS_ACTIVE ->  
+          let s = get_tactic_module tactic in  
+          let module Tactic = (val s : Sp.TacticSig) in
+          lwt _ = Tactic.disable a b in 
+          lwt _ = Tactic.teardown a b in
+            Connections.store_tactic_state a b tactic
+              Connections.FAILED None;
+          lwt _ = find a b in
+            return ()
+      | Connections.SUCCESS_INACTIVE -> 
+          let s = get_tactic_module tactic in  
+          let module Tactic = (val s : Sp.TacticSig) in
+          lwt _ = Tactic.teardown a b in
+            Connections.store_tactic_state a b tactic  
+              Connections.FAILED None;
+          lwt _ = find a b in
+            return ()
+
+let tunnel_monitor_t () = 
+  while_lwt true do 
+    lwt _ = Lwt_unix.sleep Config.tunnel_check_interval in
+    let conns = Connections.get_active_connections () in 
+      Lwt_list.iter_p (
+        fun (a, b) -> 
+          let waiter, wakener = Lwt.task () in 
+          lwt _ = connect wakener a b in
+          lwt res = waiter in
+            return ()
+      ) conns 
+  done
 

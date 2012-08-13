@@ -23,6 +23,11 @@ type tactic_state =
   | SUCCESS_ACTIVE
   | IN_PROGRESS
   | FAILED
+let string_of_tactic_state = function
+  | SUCCESS_INACTIVE-> "SUCCESS_INACTIVE"
+  | SUCCESS_ACTIVE  -> "SUCCESS_ACTIVE"
+  | IN_PROGRESS     -> "IN_PROGRESS" 
+  | FAILED          -> "FAILED"    
 type link_state = 
   | IDLE
   | PROCESSING
@@ -110,19 +115,6 @@ let notify_waiters  a b =
   with Not_found -> 
     ()
 
-let print_tactics_state a b =                                                     
-  let key = construct_key a b in                                                  
-  try                                                                             
-    let conn = Hashtbl.find connections key in                                    
-    let _ = Hashtbl.iter (                                                        
-      fun name tact ->                                                            
-        printf "--> %s ->\t %s\n%!" name (string_of_link_state tact.tactic_state) 
-    ) conn.tactic in  
-        ()                                                            
-  with Not_found ->                                                               
-    printf "link not found %s - %s\n%!" a b                                       
-
-
 let get_link_active_tactic a b =
   let key = construct_key a b in
   try
@@ -183,8 +175,22 @@ let dump_tunnels () =
   let _ = close_out output in 
     return ()
 
+let print_tactic_state a b =
+  let key = construct_key a b in 
+    try 
+      let conn = Hashtbl.find connections key in 
+      let _ = printf "----tactics for connection %s - %s ----\n%!" a b in 
+        Hashtbl.iter (
+          fun k v -> 
+            printf "\t %s -> %s \n%!" k (string_of_tactic_state v.tactic_state)
+        ) conn.tactic 
+    with Not_found ->
+      eprintf "connections print no connection found %s - %s\n%!" a b
+
+
 let store_tactic_state a b tactic_name link_state conn_id = 
   let key = construct_key a b in
+(*     print_tactic_state a b; *)
   let link = match (Hashtbl.mem connections key) with
     | true -> Hashtbl.find connections key
     | false -> 
@@ -210,33 +216,10 @@ let store_tactic_state a b tactic_name link_state conn_id =
           Hashtbl.add link.tactic tactic_name tactic;
           tactic
       )
-    in 
+    in
       conn.conn_id <- conn_id;
       conn.tactic_state <- link_state;
-      print_tactics_state a b;
         ()
-
-(*
- * SUCCESS_ACTIVE,   SUCCESS_ACTIVE   
- * SUCCESS_ACTIVE,   SUCCESS_INACTIVE 
- * SUCCESS_ACTIVE,   FAILED            
- * SUCCESS_ACTIVE,   IN_PROGRESS       
- * SUCCESS_INACTIVE, SUCCESS_ACTIVE  
- * FAILED            SUCCESS_ACTIVE   
- * IN_PROGRESS       SUCCESS_ACTIVE  
- * SUCCESS_INACTIVE, SUCCESS_INACTIVE
- * SUCCESS_INACTIVE, FAILED          
- * SUCCESS_INACTIVE, IN_PROGRESS     
- * FAILED            FAILED          
- * FAILED            SUCCESS_INACTIVE
- * IN_PROGRESS       SUCCESS_INACTIVE
-
- * FAILED            IN_PROGRESS     
- * IN_PROGRESS       FAILED          
- * IN_PROGRESS       IN_PROGRESS     
-* *)
-
-
 
 let get_link_connection_status a b =
   let key = construct_key a b in
@@ -286,3 +269,14 @@ let get_tactic_status a b tactic_name =
   with Not_found ->
     FAILED
 
+
+let get_active_connections () = 
+  Hashtbl.fold (
+    fun k v ret ->
+      let (a, b) = k in
+      match (get_link_connection_status a b) with
+        | SUCCESS_ACTIVE ->
+            ret @ [k]
+        | _ -> 
+            ret 
+  ) connections  [] 
