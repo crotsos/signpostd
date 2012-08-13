@@ -199,7 +199,7 @@ let start_ssh_server conn loc_node rem_node =
         (get_tactic_ip conn (sprintf "%s.d%d" loc_node Config.signpost_number)) in     
     lwt res = Nodes.send_blocking loc_node  
                 (Rpc.create_tactic_request "ssh" Rpc.CONNECT "server" 
-                   [q_rem_node; (Int32.to_string conn.conn_id ); 
+                   [q_rem_node; rem_node; (Int32.to_string conn.conn_id ); 
                     rem_sp_ip;tunnel_ip]) in 
       return (res)
   with exn -> 
@@ -222,7 +222,7 @@ let start_ssh_client conn loc_node rem_node rem_dev_id =
       Uri_IP.ipv4_to_string 
         (get_tactic_ip conn (sprintf "%s.d%d" loc_node Config.signpost_number)) in     
     let rpc = (Rpc.create_tactic_request "ssh" Rpc.CONNECT "client" 
-                 [server_ip; (string_of_int ssh_port); q_rem_node; 
+                 [server_ip; (string_of_int ssh_port); q_rem_node; rem_node; 
                   (Int32.to_string conn.conn_id); loc_tun_ip; 
                   rem_dev_id;]) in
     lwt res = Nodes.send_blocking loc_node rpc in 
@@ -258,7 +258,7 @@ let start_local_server conn a b =
     let _ = Ssh.Manager.server_add_client conn.conn_id host 0l dev_id in
       dev_id
   in
-  let connect_client loc_node rem_dev =
+  let connect_client loc_node rem_dev rem_node =
     let domain = (sprintf "d%d" Config.signpost_number) in 
     let q_loc_node = sprintf "%s.d%d" loc_node Config.signpost_number in
 (*     let dev = Printf.sprintf "tap%d" local_dev in   *)
@@ -271,14 +271,14 @@ let start_local_server conn a b =
     let rpc = (Rpc.create_tactic_request "ssh" 
                  Rpc.CONNECT "client" 
                  [Config.external_ip; (string_of_int ssh_port);
-                  domain; (Int32.to_string conn.conn_id); 
+                  domain; rem_node; (Int32.to_string conn.conn_id); 
                   loc_tun_ip; (string_of_int rem_dev);]) in
     lwt _ = (Nodes.send_blocking loc_node rpc) in 
       return ()
   in
   try_lwt
     let [a_dev; b_dev] = List.map create_devices [a;b] in
-    lwt _ = (connect_client a a_dev) <&> (connect_client b b_dev) in
+    lwt _ = (connect_client a a_dev b) <&> (connect_client b b_dev a) in
 (*     lwt _ = setup_cloud_flows a_dev b_dev in  *)
       return ("true")
   with ex ->
