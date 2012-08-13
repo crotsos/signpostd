@@ -36,6 +36,7 @@ module Manager = struct
     pid: int;      (* pid of the process *)
     dev_id:int;    (* tun tap device id *)
     conn_id:int32; (* an id to map state with cloud state *)
+    rem_node:string; 
     (* list of nodes participating in the tunnel *)
     mutable nodes: string list;
   }
@@ -294,7 +295,7 @@ module Manager = struct
 
   (* This method will check if a server listening for a specific 
   * domain is running or not, and handle certificates appropriately. *)
-  let get_domain_dev_id node domain port ip conn_id = 
+  let get_domain_dev_id node domain port ip conn_id rem_node = 
     if Hashtbl.mem conn_db.conns domain then  (
       let conn = Hashtbl.find conn_db.conns domain in
         if (List.mem (node^"."^Config.domain) conn.nodes) then (
@@ -322,7 +323,7 @@ module Manager = struct
                                       domain ^"/server.pid") in 
           Hashtbl.add conn_db.conns (domain) 
             {ip=ip;port=(int_of_string port);pid;
-             dev_id;nodes=[node ^ "." ^ Config.domain]; conn_id;};
+             dev_id;nodes=[node ^ "." ^ Config.domain]; conn_id;rem_node;};
           return(dev_id) ) 
  
   let setup_flows dev mac_addr local_ip rem_ip local_sp_ip 
@@ -438,9 +439,9 @@ module Manager = struct
     match kind with
     | "server" ->(
       try_lwt
-        let port::node::domain::conn_id::local_ip::_ = args in
+        let port::node::domain::rem_node::conn_id::local_ip::_ = args in
         let conn_id = Int32.of_string conn_id in 
-        lwt _ = get_domain_dev_id node domain port local_ip conn_id in
+        lwt _ = get_domain_dev_id node domain port local_ip conn_id rem_node in
         lwt _ = send_gratuitous_arp local_ip in 
           return ("true")
       with e -> 
@@ -449,7 +450,7 @@ module Manager = struct
     )
     | "client" -> (
       try_lwt
-        let ip::port::node::domain::conn_id::local_ip::_ = args in
+        let ip::port::node::domain::rem_node::conn_id::local_ip::_ = args in
         let conn_id = Int32.of_string conn_id in 
         let dev_id = Tap.get_new_dev_ip () in
         let net_dev = Printf.sprintf "tap%d" dev_id in
@@ -460,7 +461,7 @@ module Manager = struct
                                       domain ^"/client.pid") in 
         let _ = Hashtbl.add conn_db.conns (domain) 
             {ip=ip;port=(int_of_string port);pid;
-             dev_id;nodes=[node ^ "." ^ Config.domain]; conn_id;} in
+             dev_id;nodes=[node ^ "." ^ Config.domain]; conn_id;rem_node;} in
         lwt _ = send_gratuitous_arp local_ip in 
           return ("true")
       with ex ->
