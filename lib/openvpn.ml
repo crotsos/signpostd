@@ -439,7 +439,7 @@ module Manager = struct
     match kind with
     | "server" ->(
       try_lwt
-        let port::node::domain::rem_node::conn_id::local_ip::_ = args in
+        let port::node::rem_node::domain::conn_id::local_ip::_ = args in
         let conn_id = Int32.of_string conn_id in 
         lwt _ = get_domain_dev_id node domain port local_ip conn_id rem_node in
         lwt _ = send_gratuitous_arp local_ip in 
@@ -450,7 +450,7 @@ module Manager = struct
     )
     | "client" -> (
       try_lwt
-        let ip::port::node::domain::rem_node::conn_id::local_ip::_ = args in
+        let ip::port::node::rem_node::domain::conn_id::local_ip::_ = args in
         let conn_id = Int32.of_string conn_id in 
         let dev_id = Tap.get_new_dev_ip () in
         let net_dev = Printf.sprintf "tap%d" dev_id in
