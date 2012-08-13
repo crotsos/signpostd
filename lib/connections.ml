@@ -123,6 +123,19 @@ let print_tactics_state a b =
     printf "link not found %s - %s\n%!" a b                                       
 
 
+let print_tactics_state a b =                                                     
+  let key = construct_key a b in                                                  
+  try                                                                             
+    let conn = Hashtbl.find connections key in                                    
+    let _ = Hashtbl.iter (                                                        
+      fun name tact ->                                                            
+        printf "--> %s ->\t %s\n%!" name (string_of_link_state tact.tactic_state) 
+    ) conn.tactic in  
+        ()                                                            
+  with Not_found ->                                                               
+    printf "link not found %s - %s\n%!" a b                                       
+
+
 let get_link_active_tactic a b =
   let key = construct_key a b in
   try
