@@ -314,7 +314,7 @@ let disable_openvpn conn a b =
   try_lwt
     let q_a = Printf.sprintf "%s.d%d" a Config.signpost_number in 
     let rpc_a = 
-      (Rpc.create_tactic_request "ssh" Rpc.DISABLE "disable" 
+      (Rpc.create_tactic_request "openvpn" Rpc.DISABLE "disable" 
          [(Int32.to_string conn.conn_id); 
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_a));
           (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b))]) in
