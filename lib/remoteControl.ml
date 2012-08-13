@@ -19,25 +19,31 @@ open Lwt
 open Printf
 open Int64
 open Re_str
-
-let bind_fd ~port =
-  let src = Unix.ADDR_INET (Unix.inet_addr_any, (to_int port)) in 
-  let fd = Lwt_unix.(socket PF_INET SOCK_DGRAM 0) in
-  let () = Lwt_unix.bind fd src in
-  return fd
-
-let usage () = 
-  return (Printf.printf "Invalid arg\n%!")
+open Lwt_unix
 
 lwt _ =
-  try 
-    let server_ip = Sys.argv.(1) in 
-    let remote_port = (int_of_string Sys.argv.(2)) in 
-    let command = Sys.argv.(3) in 
-    let fd = Lwt_unix.(socket PF_INET SOCK_DGRAM 0) in
-    let ipaddr = (Unix.gethostbyname server_ip).Unix.h_addr_list.(0) in
-    let portaddr = Unix.ADDR_INET (ipaddr, remote_port) in
-    lwt _ = Lwt_unix.sendto fd command 0 (String.length command) [] portaddr in
-    return ()
-  with _ -> 
-    usage ()
+   let server_ip = Config.external_ip in 
+   let remote_port = Config.signal_port in 
+    let command = 
+      try 
+         Sys.argv.(1)
+      with _ -> 
+        failwith (Printf.sprintf "Invalid arg\n%!")
+    in
+      try_lwt 
+        let client_sock = socket PF_INET SOCK_STREAM 0 in
+        let hentry = Unix.inet_addr_of_string server_ip in
+        lwt _ = 
+           (Lwt_unix.sleep 4.0 >|= (fun _ -> failwith("Can't connect")) ) <?> 
+                Lwt_unix.connect client_sock(ADDR_INET(hentry, remote_port)) in 
+        let ADDR_INET(loc_ip,loc_port) = Lwt_unix.getsockname client_sock in
+
+        let rpc = Rpc.create_notification "exec_tactic" [command; "home"; "slave";] in
+        let data = Rpc.rpc_to_string rpc in  
+          
+        lwt _ = Lwt_unix.send client_sock data 0 (String.length data) [] in 
+            Lwt_unix.shutdown client_sock SHUTDOWN_ALL; 
+            return ()
+      with exn ->
+        eprintf "[signal] tcp client error:%s\n%!" (Printexc.to_string exn);
+        return ()
