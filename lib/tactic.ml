@@ -36,7 +36,7 @@ type tactic =
   | OpenVPN of openvpn_state
   | IPSec of ipsec_state
 
- 
+(* 
 (* Attempt a TCP connect out to dst:port *) 
 module TCP_connect = struct
 
@@ -79,4 +79,4 @@ let start_tactic ~src ~dst ~tactic =
   in
   let mode = Node.Starting th in
   let depends = [] in (* eventually an FRP dependency for recalculation *)
-  Node.make_entry ~service ~mode ~depends
+  Node.make_entry ~service ~mode ~depends *)

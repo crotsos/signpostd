@@ -108,12 +108,12 @@ let get_entry_of_name entries name =
     None
 
 let construct_command command =
-  let open Re_str in
-  let rxp = regexp "#" in
-  match split rxp command with
+  let rxp = Re_str.regexp "#" in
+  match Re_str.split rxp command with
   | c :: [] -> Command c
   | tactic :: action :: c :: [] -> TacticCommand(tactic, (action_of_string action), c)
-  | _ -> raise (BadRpc "Invalid method structure")
+  | _ -> 
+      raise (BadRpc "Invalid method structure")
 
 let construct_args string_args =
   let map_fn = function

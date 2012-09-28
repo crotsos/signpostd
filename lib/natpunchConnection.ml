@@ -19,8 +19,8 @@ open Lwt_unix
 open Lwt_list
 open Printf
 
-module OP = Openflow.Packet
-module OC = Openflow.Controller
+module OP = Openflow.Ofpacket
+module OC = Openflow.Ofcontroller
 module OE = OC.Event
 
 let pp = Printf.printf
@@ -197,7 +197,7 @@ let handle_notification _ method_name arg_list =
           (* connection parameter *)
           let a::b::tp_src::tp_dst::isn::ack::_ = arg_list in 
 
-          let Some(port) = Net_cache.Port_cache.dev_to_port_id Config.net_intf in 
+          let port = Net_cache.Port_cache.dev_to_port_id Config.net_intf in 
           let port = OP.Port.port_of_int port in
           let controller = (List.hd 
                   Sp_controller.switch_data.Sp_controller.of_ctrl) in 
@@ -213,19 +213,24 @@ let handle_notification _ method_name arg_list =
                       mac_b "\xf0\xad\x4e\x00\xcb\xab" ip_a ip_b
                       (int_of_string tp_dst) (int_of_string tp_src)
           in
-          let bs_a = (OP.Packet_out.packet_out_to_bitstring 
-                      (OP.Packet_out.create ~buffer_id:(-1l)
-                      ~actions:[OP.(Flow.Output(port, 2000))]
-                      ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
+          let bs_a = 
+            OP.marshal_and_sub
+              (OP.Packet_out.marshal_packet_out 
+                 (OP.Packet_out.create ~buffer_id:(-1l)
+                    ~actions:[OP.(Flow.Output(port, 2000))]
+                    ~data:pkt ~in_port:(OP.Port.No_port) () ))
+              (Lwt_bytes.create 4096) in  
 
           let pkt = Tcp.gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
                       mac_a "\xf0\xad\x4e\x00\xcb\xab" ip_b ip_a
                       (int_of_string tp_src) (int_of_string tp_dst)
           in
-          let bs_b = (OP.Packet_out.packet_out_to_bitstring 
+          let bs_b = OP.marshal_and_sub 
+                       (OP.Packet_out.marshal_packet_out
                       (OP.Packet_out.create ~buffer_id:(-1l)
                       ~actions:[OP.(Flow.Output(port, 2000))]
-                      ~data:pkt ~in_port:(OP.Port.No_port) () )) in 
+                      ~data:pkt ~in_port:(OP.Port.No_port) () )) 
+                       (Lwt_bytes.create 4096) in 
           lwt _ =  OC.send_of_data controller dpid bs_b in
           lwt _ =  Lwt_unix.sleep 1.0 in
           lwt _ =  OC.send_of_data controller dpid bs_a in

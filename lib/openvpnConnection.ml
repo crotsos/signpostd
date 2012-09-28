@@ -21,8 +21,8 @@ open Printf
 open Int64
 open Rpc
 
-module OP = Openflow.Packet
-module OC = Openflow.Controller
+module OP = Openflow.Ofpacket
+module OC = Openflow.Ofcontroller
 
 exception Openvpn_error
 

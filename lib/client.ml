@@ -196,19 +196,19 @@ let client_t () =
 let signal_t  ~port =
   IncomingSignalling.thread_client ~address:Config.external_ip ~port
 
-let _ =
+lwt _ =
   (try node_name := Sys.argv.(1) with _ -> usage ());
 (*    Lwt_engine.set (new Lwt_engine.select); *)
   Nodes.set_local_name !node_name;
   (try node_ip := Sys.argv.(2) with _ -> usage ());
   (try node_port := (of_int (int_of_string Sys.argv.(3))) with _ -> usage ());
-  printf "Hello\n%!";
 (*   lwt _ = waiter_connect in  *)
-  let daemon_t = 
+    Manager.create (
+      fun mgr _ _ -> 
         join [ 
          signal_t ~port:(Int64.of_int Config.signal_port) (client_t);
          Monitor.monitor_t ();
          dns_t ();
-         Sp_controller.listen (); 
-        ] in
-  Lwt_main.run daemon_t
+         Sp_controller.listen mgr; 
+        ]
+    )

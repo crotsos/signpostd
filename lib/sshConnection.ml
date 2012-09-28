@@ -20,8 +20,8 @@ open Lwt_unix
 open Printf
 open Int64
 
-module OP = Openflow.Packet
-module OC = Openflow.Controller
+module OP = Openflow.Ofpacket
+module OC = Openflow.Ofcontroller
 
 exception Ssh_error
 
@@ -316,7 +316,7 @@ let setup_cloud_flows a_dev b_dev a_tun_ip b_tun_ip =
                     switch_data.Sp_controller.of_ctrl) in 
   let dpid = 
     (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
-  let [Some(a_port); Some(b_port)] = 
+  let [a_port; b_port] = 
     List.map ( 
       fun dev -> Net_cache.Port_cache.dev_to_port_id (Printf.sprintf "tap%d" dev)) 
       [a_dev; b_dev] in
@@ -334,7 +334,8 @@ let setup_cloud_flows a_dev b_dev a_tun_ip b_tun_ip =
   let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
               ~idle_timeout:0 ~buffer_id:(-1) actions () in 
   lwt _ = OC.send_of_data controller dpid 
-            (OP.Flow_mod.flow_mod_to_bitstring pkt) in
+            (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+            (Lwt_bytes.create 4096) )in
   
   let flow = OP.Match.create_flow_match flow_wild 
                ~in_port:b_port ~dl_type:(0x0800) 
@@ -344,7 +345,8 @@ let setup_cloud_flows a_dev b_dev a_tun_ip b_tun_ip =
   let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
               ~idle_timeout:0 ~buffer_id:(-1) actions () in 
     OC.send_of_data controller dpid 
-      (OP.Flow_mod.flow_mod_to_bitstring pkt)
+      (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+         (Lwt_bytes.create 4096) )
 
 let enable_ssh conn a b = 
   (* Init server on b *)
@@ -431,7 +433,8 @@ let disable_cloud_ssh conn a b =
         let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.DELETE 
                     ~idle_timeout:0 ~buffer_id:(-1) [] () in 
           OC.send_of_data controller dpid 
-            (OP.Flow_mod.flow_mod_to_bitstring pkt)
+            (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+               (Lwt_bytes.create 4096))
       ) else (
         return ()
       )

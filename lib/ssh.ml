@@ -24,8 +24,8 @@ open Printf
 let ssh_port = 10000
 let tactic_priority = 5 
 
-module OP = Openflow.Packet
-module OC = Openflow.Controller
+module OP = Openflow.Ofpacket
+module OC = Openflow.Ofcontroller
 
 module Manager = struct
   exception SshError of string
@@ -271,7 +271,7 @@ module Manager = struct
     
     let flow = OP.Match.create_flow_match flow_wild 
                  ~dl_type:(0x0800) ~nw_dst:remote_sp_ip () in
-    let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in
+    let port = Net_cache.Port_cache.dev_to_port_id dev in
     let actions = [ OP.Flow.Set_nw_src(local_ip);
                     OP.Flow.Set_nw_dst(rem_ip);
                     OP.Flow.Set_dl_dst(
@@ -282,7 +282,8 @@ module Manager = struct
                 ~priority:tactic_priority 
                 ~idle_timeout:0 ~buffer_id:(-1) actions () in 
     lwt _ = OC.send_of_data controller dpid 
-              (OP.Flow_mod.flow_mod_to_bitstring pkt) in
+              (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+                 (Lwt_bytes.create 4096)) in
     
     (* get local mac address *)
     let ip_stream = (Unix.open_process_in
@@ -309,7 +310,8 @@ module Manager = struct
                 ~priority:tactic_priority ~idle_timeout:0  
                 ~buffer_id:(-1) actions () in 
       OC.send_of_data controller dpid 
-        (OP.Flow_mod.flow_mod_to_bitstring pkt)
+        (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+           (Lwt_bytes.create 4096))
 
   let connect kind args =
     try_lwt
@@ -370,7 +372,7 @@ module Manager = struct
     
     let flow = OP.Match.create_flow_match flow_wild 
                  ~dl_type:(0x0800) ~nw_dst:remote_sp_ip () in
-    let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in
+    let port = Net_cache.Port_cache.dev_to_port_id dev in
     let actions = [ OP.Flow.Set_nw_src(local_ip);
                     OP.Flow.Set_nw_dst(rem_ip);
                     OP.Flow.Set_dl_dst(
@@ -381,7 +383,8 @@ module Manager = struct
                 ~priority:tactic_priority 
                 ~idle_timeout:0 ~buffer_id:(-1) actions () in 
     lwt _ = OC.send_of_data controller dpid 
-              (OP.Flow_mod.flow_mod_to_bitstring pkt) in
+              (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
+              (Lwt_bytes.create 4096) ) in
     
     (* get local mac address *)
     let ip_stream = (Unix.open_process_in
@@ -407,7 +410,8 @@ module Manager = struct
                 ~priority:tactic_priority ~idle_timeout:0  
                 ~buffer_id:(-1) actions () in 
       OC.send_of_data controller dpid 
-        (OP.Flow_mod.flow_mod_to_bitstring pkt)
+        (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
+        (Lwt_bytes.create 4096))
 
   let enable kind args =
     try_lwt
@@ -468,10 +472,12 @@ module Manager = struct
                 ~priority:tactic_priority 
                 ~idle_timeout:0 ~buffer_id:(-1) [] () in 
     lwt _ = OC.send_of_data controller dpid 
-              (OP.Flow_mod.flow_mod_to_bitstring pkt) in
+              (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
+              (Lwt_bytes.create 4096)) in
+
     
     (* setup incoming flow *)
-    let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in
+    let port = Net_cache.Port_cache.dev_to_port_id dev in
     let flow_wild = OP.Wildcards.({
       in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
       dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
@@ -483,7 +489,8 @@ module Manager = struct
                 ~priority:tactic_priority ~idle_timeout:0  
                 ~buffer_id:(-1) [] () in 
       OC.send_of_data controller dpid 
-        (OP.Flow_mod.flow_mod_to_bitstring pkt)
+        (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
+        (Lwt_bytes.create 4096))
 
   let disable kind args =
     try_lwt
@@ -522,7 +529,7 @@ module Manager = struct
     try_lwt
       match kind with
         | "teardown" -> begin
-            let conn_id::local_tun_ip::local_sp_ip::_ = args in
+            let conn_id::local_tun_ip::_ = args in
             let conn_id = Int32.of_string conn_id in
             let domain = ref None in
             let _ = 

@@ -20,8 +20,8 @@ open Lwt
 open Lwt_list
 open Printf
 
-module OP = Openflow.Packet
-module OC = Openflow.Controller
+module OP = Openflow.Ofpacket
+module OC = Openflow.Ofcontroller
 module OE = OC.Event
 
 module Manager = struct
@@ -172,14 +172,15 @@ module Manager = struct
                 conn.src_mac conn.dst_mac 
                 conn.dst_ip conn.src_ip
                 dst_port conn.dst_port in 
-    let bs = (OP.Packet_out.packet_out_to_bitstring 
+    let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out 
                 (OP.Packet_out.create ~buffer_id:(-1l)
                    ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
-                   ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
+                   ~data:pkt ~in_port:(OP.Port.No_port) () )) 
+               (Lwt_bytes.create 4096) in  
     lwt _ = OC.send_of_data controller dpid bs in 
 
   (* Send an http request to setup the persistent connection to the ssl server *)
-  let sock_req = Bitstring.bitstring_of_string conn.data in 
+  let sock_req = Lwt_bytes.of_string conn.data in 
   let pkt = (Tcp.gen_tcp_data_pkt 
                (Int32.sub conn.src_isn
                   (Int32.of_int ((String.length conn.data) - 1)) )
@@ -187,10 +188,11 @@ module Manager = struct
                conn.src_mac conn.dst_mac
                gw conn.src_ip
                m.OP.Match.tp_src dst_port sock_req) in 
-  let bs = (OP.Packet_out.packet_out_to_bitstring 
+  let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out 
               (OP.Packet_out.create ~buffer_id:(-1l)
                  ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
-                ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
+                ~data:pkt ~in_port:(OP.Port.No_port) () )) 
+             (Lwt_bytes.create 4096) in  
     OC.send_of_data controller dpid bs
 
   let ssl_complete_flow controller dpid conn m dst_port = 
@@ -203,10 +205,11 @@ module Manager = struct
                 conn.src_mac conn.dst_mac
                 gw conn.src_ip
                 m.OP.Match.tp_src dst_port 0xffff in 
-    let bs = (OP.Packet_out.packet_out_to_bitstring 
+    let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out 
                 (OP.Packet_out.create ~buffer_id:(-1l)
                    ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
-                   ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
+                   ~data:pkt ~in_port:(OP.Port.No_port) () )) 
+               (Lwt_bytes.create 4096) in  
     lwt _ = OC.send_of_data controller dpid bs in
 
     let pkt = Tcp.gen_server_ack 
@@ -215,10 +218,11 @@ module Manager = struct
                 conn.src_mac conn.dst_mac 
                 conn.dst_ip conn.src_ip
                 dst_port conn.dst_port 0xffff in 
-    let bs = (OP.Packet_out.packet_out_to_bitstring 
+    let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out 
                 (OP.Packet_out.create ~buffer_id:(-1l)
                    ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
-                   ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
+                   ~data:pkt ~in_port:(OP.Port.No_port) () )) 
+               (Lwt_bytes.create 4096) in  
     lwt _ = OC.send_of_data controller dpid bs in
 
     
@@ -232,7 +236,8 @@ module Manager = struct
     OP.Flow.Output((OP.Port.Local), 2000);] in
   let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
               ~buffer_id:(-1) actions () in 
-  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
+             (Lwt_bytes.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in 
 
   let m = OP.Match.({wildcards=(OP.Wildcards.exact_match);
@@ -251,7 +256,8 @@ module Manager = struct
     OP.Flow.Output((OP.Port.Local), 2000);] in
   let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
               ~buffer_id:(-1) actions () in 
-  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+             (Lwt_bytes.create 4096) in
     OC.send_of_data controller dpid bs 
     
   
@@ -261,7 +267,7 @@ module Manager = struct
         | OE.Packet_in (inp, buf, dat, dp) -> (inp, buf, dat, dp)
         | _ -> invalid_arg "bogus datapath_join event match!"
     in
-    let m = OP.Match.parse_from_raw_packet in_port data in
+    let m = OP.Match.raw_packet_to_match in_port data in
     let _ = 
       match (m.OP.Match.tp_src, m.OP.Match.tp_dst) with
         | (src_port, 80) -> (
@@ -283,7 +289,8 @@ module Manager = struct
                               ~buffer_id:(Int32.to_int buffer_id)
                               [OP.Flow.Output(port_id, 2000);] 
                               () in 
-                  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+                  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+                             (Lwt_bytes.create 4096) in
                     OC.send_of_data controller dpid bs
                 )
               | false -> (
@@ -311,7 +318,8 @@ module Manager = struct
                       let pkt = OP.Flow_mod.create m 0_L OP.Flow_mod.ADD 
                                   ~buffer_id:(Int32.to_int buffer_id)
                                   actions () in 
-                      let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+                      let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+                                 (Lwt_bytes.create 4096) in
                         OC.send_of_data controller dpid bs)
             with ex ->
               return (Printf.printf "[privoxy] error: %s\n%!" (Printexc.to_string ex))
@@ -336,7 +344,8 @@ module Manager = struct
                                   ~buffer_id:(Int32.to_int buffer_id)
                                   [OP.Flow.Output(port_id, 2000);] 
                                   () in 
-                      let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+                      let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+                                 (Lwt_bytes.create 4096) in
                         OC.send_of_data controller dpid bs
 
                     with ex -> 
@@ -369,10 +378,12 @@ module Manager = struct
                                      ((Int32.of_int ((String.length mapping.data)))) )
                                   mapping.src_mac mapping.dst_mac
                                   mapping.src_ip gw privoxy_port in 
-                      let bs = (OP.Packet_out.packet_out_to_bitstring 
+                      let bs = OP.marshal_and_sub 
+                                 (OP.Packet_out.marshal_packet_out
                                   (OP.Packet_out.create ~buffer_id:(-1l)
                                      ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
-                                     ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
+                                     ~data:pkt ~in_port:(OP.Port.No_port) () )) 
+                                 (Lwt_bytes.create 4096) in  
                         OC.send_of_data controller dpid bs 
             ) 
           )
@@ -391,7 +402,8 @@ module Manager = struct
                        let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
                                    ~buffer_id:(Int32.to_int buffer_id)
                                    actions () in 
-                       let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+                       let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+                                  (Lwt_bytes.create 4096) in
                          OC.send_of_data controller dpid bs
                    | SSL ->
                        (
@@ -402,8 +414,7 @@ module Manager = struct
                                  conn.ssl_state <- SSL_CLIENT_INIT;
                                  ssl_send_conect_req controller dpid conn m dst_port )
                            | SSL_CLIENT_INIT -> (
-                               let payload_len = (Bitstring.bitstring_length
-                                                    (Tcp.get_tcp_packet_payload data)) in
+                               let payload_len = Cstruct.len (Tcp.get_tcp_packet_payload data) in
                                  if (payload_len > 0) then (
 (*
                                    let isn = Tcp.get_tcp_sn data in 

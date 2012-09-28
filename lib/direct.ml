@@ -19,8 +19,8 @@ open Lwt_unix
 open Lwt_list
 open Printf
 
-module OP = Openflow.Packet
-module OC = Openflow.Controller
+module OP = Openflow.Ofpacket
+module OC = Openflow.Ofcontroller
 
 module Manager = struct
   exception DirectError of string
@@ -121,12 +121,17 @@ module Manager = struct
         | "server_stop" -> (
           match conn_db.can with
             | Some t ->
-                cancel t;
-                conn_db.can <- None;
-                (match conn_db.fd with
-                   | Some(fd) -> (Lwt_unix.close fd; conn_db.fd <- None; ())
-                   | _ -> ());
-                return ("OK")
+                let _ = cancel t in
+                let _ = conn_db.can <- None in 
+                let _ = 
+                  match conn_db.fd with
+                   | Some(fd) -> 
+                       let _ = Lwt_unix.close fd in
+                       let _ = conn_db.fd <- None in
+                         ()
+                   | _ -> ()
+                in
+                  return ("OK")
             | _ -> return ("OK"))
         (* code to send udp packets to the destination*)
         | "client" -> (
@@ -154,7 +159,7 @@ module Manager = struct
     let dpid = 
       (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
 
-    let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in
+    let port = Net_cache.Port_cache.dev_to_port_id dev in
     (* outgoing flow configuration *)
 
     let flow_wild = OP.Wildcards.({
@@ -173,7 +178,8 @@ module Manager = struct
     let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
                 ~priority:tactic_priority ~idle_timeout:0 
                 ~buffer_id:(-1) actions () in 
-    let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+               (Lwt_bytes.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in
       
     (* get local mac address *)
@@ -201,26 +207,27 @@ module Manager = struct
     let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
                 ~priority:tactic_priority ~idle_timeout:0  
                 ~buffer_id:(-1) actions () in 
-    let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+               (Lwt_bytes.create 4096) in
       OC.send_of_data controller dpid bs
 
        
-  let connect kind args =
+  let connect kind _ =
     raise(DirectError(
         (Printf.sprintf "[direct] invalid connect action %s" kind)))
 
   let enable kind args =
     match kind with
-    | "enable" ->(
-      try_lwt
-        let mac_addr::local_ip::remote_ip::
-            local_sp_ip::remote_sp_ip::_ = args in
-        let [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] = 
-          List.map Uri_IP.string_to_ipv4 
-            [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] in 
-        lwt _ = setup_flows Config.net_intf mac_addr 
-                  local_ip remote_ip local_sp_ip remote_sp_ip in
-          return true
+      | "enable" ->(
+        try_lwt
+          let mac_addr::local_ip::remote_ip::
+              local_sp_ip::remote_sp_ip::_ = args in
+          let [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] = 
+            List.map Uri_IP.string_to_ipv4 
+              [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] in 
+          lwt _ = setup_flows Config.net_intf mac_addr 
+                    local_ip remote_ip local_sp_ip remote_sp_ip in
+            return true
       with e -> 
         eprintf "[direct] enable error: %s\n%!" (Printexc.to_string e); 
         raise (DirectError((Printexc.to_string e)))
@@ -235,7 +242,6 @@ module Manager = struct
       (List.hd Sp_controller.switch_data.Sp_controller.of_ctrl) in 
     let dpid = 
       (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
-    let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in
 
     (* outgoing flow removal *)
     let flow_wild = OP.Wildcards.({
@@ -249,10 +255,11 @@ module Manager = struct
                 ~priority:tactic_priority ~idle_timeout:0 
                 ~buffer_id:(-1) [] () in 
     lwt _ = OC.send_of_data controller dpid
-      ( OP.Flow_mod.flow_mod_to_bitstring pkt  ) in
+      ( OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+          (Lwt_bytes.create 4096) ) in
       
     (* Setup incoming flow *)
-    let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in
+    let port = Net_cache.Port_cache.dev_to_port_id dev in
     let flow_wild = OP.Wildcards.({
       in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
       dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
@@ -265,7 +272,8 @@ module Manager = struct
                 ~priority:tactic_priority ~idle_timeout:0  
                 ~buffer_id:(-1) [] () in 
       OC.send_of_data controller dpid 
-        (OP.Flow_mod.flow_mod_to_bitstring pkt)
+        (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+        (Lwt_bytes.create 4096))
 
   let disable kind  args =
     match kind with 
@@ -283,7 +291,7 @@ module Manager = struct
           printf "[direct] teardown action %s not supported in test" kind;
           return ("false"))
   
-  let teardown kind args = 
+  let teardown kind _ = 
     printf "[direct] teardown action %s not supported" kind;
     return ("false")
 end

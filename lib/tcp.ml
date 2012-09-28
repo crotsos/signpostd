@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-open Bitstring
+open Cstruct
 open Printf
 
 module Checksum = struct 
@@ -34,49 +34,94 @@ module Checksum = struct
         ((lnot res) land 0xffff)
       )
 end
+
+(*
+ * TCP/IP header informations. 
+ * *)
+
+cstruct ethernet {
+  uint8_t        dst[6];
+  uint8_t        src[6];
+  uint16_t       ethertype
+} as big_endian
+
+cstruct ipv4 {
+  uint8_t        hlen_version;
+  uint8_t        tos;
+  uint16_t       len;
+  uint16_t       id;
+  uint16_t       off;
+  uint8_t        ttl;
+  uint8_t        proto;
+  uint16_t       csum;
+  uint32_t       src; 
+  uint32_t       dst
+} as big_endian
+
+cstruct tcpv4 {
+  uint16_t src_port;
+  uint16_t dst_port;
+  uint32_t sequence;
+  uint32_t ack_number;
+  uint8_t  dataoff;
+  uint8_t  flags;
+  uint16_t window;
+  uint16_t checksum;
+  uint16_t urg_ptr
+} as big_endian
+
+let get_fin buf = ((get_uint8 buf 13) land (1 lsl 0)) > 0
+let get_syn buf = ((get_uint8 buf 13) land (1 lsl 1)) > 0
+let get_rst buf = ((get_uint8 buf 13) land (1 lsl 2)) > 0
+let get_psh buf = ((get_uint8 buf 13) land (1 lsl 3)) > 0
+let get_ack buf = ((get_uint8 buf 13) land (1 lsl 4)) > 0
+let get_urg buf = ((get_uint8 buf 13) land (1 lsl 5)) > 0
+let get_ece buf = ((get_uint8 buf 13) land (1 lsl 6)) > 0
+let get_cwr buf = ((get_uint8 buf 13) land (1 lsl 7)) > 0
+
+cstruct pseudo_header {
+  uint32_t src;
+  uint32_t dst;
+  uint8_t res;
+  uint8_t proto;
+  uint16_t len
+} as big_endian 
+
+
+
+
 type tcp_flags_struct = {
     urg:bool; ack: bool; 
     psh:bool; rst:bool; 
     syn:bool; fin:bool;}
 
-let get_tcp_packet_payload data = 
-  bitmatch data with 
-    | {_:116:bitstring; ihl:4; _:((ihl*32)-8):bitstring;
-         _:96:bitstring; tcp_len:4;
-         _:((tcp_len*32) - 100):bitstring; tcp_body:-1:bitstring } ->
-(*
-        (Printf.printf "get_tcp_packet_payload matched packet\n%!");
-        (Bitstring.hexdump_bitstring Pervasives.stdout tcp_body);
- *)
-        tcp_body
-    | { _ } -> 
-        (Bitstring.hexdump_bitstring Pervasives.stdout data;
-        Printf.printf "get_tcp_packet_payload failed to parse\n%!";
-         Bitstring.empty_bitstring)
+let get_tcp_packet_payload bits =
+  let bits = shift bits sizeof_ethernet in 
+  let ip_len = ((get_ipv4_hlen_version bits) land 0xf0) lsl 4 in
+  let bits = shift bits (ip_len * 8) in
+  let tcp_len = ((get_tcpv4_dataoff bits) land 0xf0) lsl 4 in
+    shift bits (tcp_len * 4)
 
-let get_tcp_flags data = 
-  bitmatch data with 
-    | {_:96:bitstring; 0x0800:16; 4:4; ihl:4; _:64:bitstring; 6:8; _:16; 
-       _:64:bitstring; _:(ihl-5)*32:bitstring; _:32; _:64; _:10;
-       urg:1; ack:1; psh:1; rst:1; syn:1; fin:1; _:-1:bitstring } ->
-        {urg; ack; psh; rst; syn; fin;}
-    | { _ } -> invalid_arg("get_tcp_sn packet is not TCP")
+let get_tcp_flags bits = 
+  let bits = shift bits sizeof_ethernet in 
+  let ip_len = ((get_ipv4_hlen_version bits) land 0xf0) lsl 4 in
+  let bits = shift bits (ip_len * 8) in
+    {urg=(get_urg bits); ack=(get_ack bits); psh=(get_psh bits); 
+     rst=(get_rst bits); syn=(get_syn bits); fin=(get_fin bits);}
 
-let get_tcp_sn data = 
-  bitmatch data with 
-    | {_:96:bitstring; 0x0800:16; 4:4; ihl:4; _:64:bitstring; 6:8; _:16; 
-       _:64:bitstring; _:(ihl-5)*32:bitstring; _:32; isn:32;
-       _:-1:bitstring } ->
-        isn
-    | { _ } -> invalid_arg("get_tcp_sn packet is not TCP")
-let get_tcp_ack data = 
-  bitmatch data with 
-    | {_:96:bitstring; 0x0800:16; 4:4; ihl:4; _:64:bitstring; 6:8; _:16; 
-       _:64:bitstring; _:(ihl-5)*32:bitstring; _:64; ack:32;
-       _:-1:bitstring } ->
-        ack
-    | { _ } -> invalid_arg("get_tcp_sn packet is not TCP")
-
+let get_tcp_sn bits = 
+  let bits = shift bits sizeof_ethernet in 
+  let ip_len = ((get_ipv4_hlen_version bits) land 0xf0) lsl 4 in
+  let bits = shift bits (ip_len * 8) in
+    get_tcpv4_sequence bits
+  
+let get_tcp_ack bits = 
+  let bits = shift bits sizeof_ethernet in 
+  let ip_len = ((get_ipv4_hlen_version bits) land 0xf0) lsl 4 in
+  let bits = shift bits (ip_len * 8) in
+    get_tcpv4_sequence bits
+ 
+  
 (*
  * generate a tcp syn packet
 * *)
@@ -108,6 +153,7 @@ let gen_server_syn data new_isn local_mac gw_mac
                         new_isn:32; header3:64:bitstring;  tcp_chk:16:littleendian;
                         tcp_body:(Bitstring.bitstring_length tcp_body):bitstring}
       | { _ } -> invalid_arg("gen_server_syn input packet is not TCP") 
+
 
 (* 
  * generate an ack packet with any data

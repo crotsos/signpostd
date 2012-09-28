@@ -20,24 +20,24 @@
 type pkt_in_cb_struct 
 
 type switch_state = {
-  mutable mac_cache: (Openflow.Packet.eaddr, Openflow.Packet.Port.t) Hashtbl.t; 
-  mutable dpid: Openflow.Packet.datapath_id list;
-  mutable of_ctrl: Openflow.Controller.state list;
+  mutable mac_cache: (Openflow.Ofpacket.eaddr, Openflow.Ofpacket.Port.t) Hashtbl.t; 
+  mutable dpid: Openflow.Ofpacket.datapath_id list;
+  mutable of_ctrl: Openflow.Ofcontroller.t list;
   mutable pkt_in_cb_cache : pkt_in_cb_struct list;
-  cb_register : (Openflow.Packet.Match.t, (Openflow.Controller.state ->Openflow.Packet.datapath_id -> 
-                   Openflow.Controller.Event.e -> unit Lwt.t) ) Hashtbl.t;
+  cb_register : (Openflow.Ofpacket.Match.t, (Openflow.Ofcontroller.t ->Openflow.Ofpacket.datapath_id -> 
+                   Openflow.Ofcontroller.Event.e -> unit Lwt.t) ) Hashtbl.t;
 } 
 
 val switch_data : switch_state
 (* setup a listening openflow controller *)
-val listen : ?port:int -> unit -> unit Lwt.t
+val listen : ?port:int -> Net.Manager.t -> unit Lwt.t
 
-val register_handler : Openflow.Packet.Match.t -> 
-  (Openflow.Controller.state -> Openflow.Packet.datapath_id -> 
-     Openflow.Controller.Event.e -> unit Lwt.t) -> unit Lwt.t
-val unregister_handler : Openflow.Packet.Match.t -> 
-  (Openflow.Controller.state -> Openflow.Packet.datapath_id -> 
-     Openflow.Controller.Event.e -> unit Lwt.t) -> unit Lwt.t
+val register_handler : Openflow.Ofpacket.Match.t -> 
+  (Openflow.Ofcontroller.t -> Openflow.Ofpacket.datapath_id -> 
+     Openflow.Ofcontroller.Event.e -> unit Lwt.t) -> unit Lwt.t
+val unregister_handler : Openflow.Ofpacket.Match.t -> 
+  (Openflow.Ofcontroller.t -> Openflow.Ofpacket.datapath_id -> 
+     Openflow.Ofcontroller.Event.e -> unit Lwt.t) -> unit Lwt.t
 
 val add_dev : string -> string -> string -> unit Lwt.t
 val del_dev : string -> string -> string -> unit Lwt.t

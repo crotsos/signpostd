@@ -56,7 +56,7 @@ end
 module Port_cache : sig
   val add_dev : string -> int -> unit
   val del_dev : string -> unit
-  val dev_to_port_id : string -> int option
+  val dev_to_port_id : string -> int 
   val port_id_to_dev : int -> string option
 
   val add_mac: string -> int -> unit

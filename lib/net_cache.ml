@@ -17,7 +17,7 @@
 open Lwt
 open Printf
 
-module OP = Openflow.Packet
+module OP = Openflow.Ofpacket
 
 module Routing = struct
 
@@ -199,10 +199,7 @@ module Port_cache = struct
     Hashtbl.remove dev_cache dev
 
   let dev_to_port_id dev =
-    if (Hashtbl.mem dev_cache dev) then
-      Some(Hashtbl.find dev_cache dev )
-    else 
-      None
+    Hashtbl.find dev_cache dev
 
   let port_id_to_dev port_id = 
     let ret = ref None in 
