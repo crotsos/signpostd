@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
+open Sp_rpc
 open Lwt
 open Printf
 open Int64
@@ -38,8 +38,8 @@ lwt _ =
                 Lwt_unix.connect client_sock(ADDR_INET(hentry, remote_port)) in 
         let ADDR_INET(loc_ip,loc_port) = Lwt_unix.getsockname client_sock in
 
-        let rpc = Rpc.create_notification "exec_tactic" [command; "home"; "slave";] in
-        let data = Rpc.rpc_to_string rpc in  
+        let rpc = create_notification "exec_tactic" [command; "home"; "slave";] in
+        let data = rpc_to_string rpc in  
           
         lwt _ = Lwt_unix.send client_sock data 0 (String.length data) [] in 
             Lwt_unix.shutdown client_sock SHUTDOWN_ALL; 

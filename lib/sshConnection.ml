@@ -19,6 +19,7 @@ open Lwt
 open Lwt_unix
 open Printf
 open Int64
+open Sp_rpc
 
 module OP = Openflow.Ofpacket
 module OC = Openflow.Ofcontroller
@@ -129,8 +130,8 @@ let test a b =
   let pairwise_connection_test a b direction =
     try_lwt 
       Printf.printf "[ssh] Trying to start ssh service...\n%!";
-      let rpc = (Rpc.create_tactic_request "ssh" 
-        Rpc.TEST "server_start" [(string_of_int ssh_port)]) in
+      let rpc = (create_tactic_request "ssh" 
+        TEST "server_start" [(string_of_int ssh_port)]) in
       lwt _ = (Nodes.send_blocking a rpc) in 
   
       (* Avoid testing my self for open connections *)
@@ -139,8 +140,8 @@ let test a b =
                                not (List.mem a not_ips) ) 
                   ((Nodes.get_local_ips a) @ (Nodes.get_public_ips b)) in  
       
-      lwt res = Nodes.send_blocking b (Rpc.create_tactic_request "ssh" 
-        Rpc.TEST "client" ([(string_of_int ssh_port)] @ ips))  in
+      lwt res = Nodes.send_blocking b (create_tactic_request "ssh" 
+        TEST "client" ([(string_of_int ssh_port)] @ ips))  in
         dir := direction; succ := true; ip := res;
         return ()
     with exn ->
@@ -198,7 +199,7 @@ let start_ssh_server conn loc_node rem_node =
       Uri_IP.ipv4_to_string 
         (get_tactic_ip conn (sprintf "%s.d%d" loc_node Config.signpost_number)) in     
     lwt res = Nodes.send_blocking loc_node  
-                (Rpc.create_tactic_request "ssh" Rpc.CONNECT "server" 
+                (create_tactic_request "ssh" CONNECT "server" 
                    [q_rem_node; rem_node; (Int32.to_string conn.conn_id ); 
                     rem_sp_ip;tunnel_ip]) in 
       return (res)
@@ -221,7 +222,7 @@ let start_ssh_client conn loc_node rem_node rem_dev_id =
     let loc_tun_ip = 
       Uri_IP.ipv4_to_string 
         (get_tactic_ip conn (sprintf "%s.d%d" loc_node Config.signpost_number)) in     
-    let rpc = (Rpc.create_tactic_request "ssh" Rpc.CONNECT "client" 
+    let rpc = (create_tactic_request "ssh" CONNECT "client" 
                  [server_ip; (string_of_int ssh_port); q_rem_node; rem_node; 
                   (Int32.to_string conn.conn_id); loc_tun_ip; 
                   rem_dev_id;]) in
@@ -268,8 +269,8 @@ let start_local_server conn a b =
     
     let loc_tun_ip = 
       Uri_IP.ipv4_to_string (get_tactic_ip conn q_loc_node) in     
-    let rpc = (Rpc.create_tactic_request "ssh" 
-                 Rpc.CONNECT "client" 
+    let rpc = (create_tactic_request "ssh" 
+                 CONNECT "client" 
                  [Config.external_ip; (string_of_int ssh_port);
                   domain; rem_node; (Int32.to_string conn.conn_id); 
                   loc_tun_ip; (string_of_int rem_dev);]) in
@@ -354,7 +355,7 @@ let enable_ssh conn a b =
     let [q_a; q_b] = List.map (
       fun n -> Printf.sprintf "%s.d%d" n Config.signpost_number) [a; b] in 
     let rpc_a = 
-      (Rpc.create_tactic_request "ssh" Rpc.ENABLE "enable" 
+      (create_tactic_request "ssh" ENABLE "enable" 
          [(Int32.to_string conn.conn_id); (Nodes.get_node_mac b); 
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_a));
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_b));
@@ -402,7 +403,7 @@ let disable_ssh conn a b =
   try_lwt
     let q_a = Printf.sprintf "%s.d%d" a Config.signpost_number in 
     let rpc_a = 
-      (Rpc.create_tactic_request "ssh" Rpc.DISABLE "disable" 
+      (create_tactic_request "ssh" DISABLE "disable" 
          [(Int32.to_string conn.conn_id); 
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_a));
           (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b))]) in

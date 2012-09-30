@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 5c08900ef55b5c09b89e530fd07e47c9)
+# DO NOT EDIT (digest: c4b736c5946a133b1e53af602edd9093)
 # Ignore VCS directories, you can use the same kind of rule outside 
 # OASIS_START/STOP if you want to exclude directories that contains 
 # useless stuff for the build process
@@ -15,7 +15,7 @@
 "_darcs": not_hygienic
 # Library signpost
 "lib/signpost.cmxs": use_signpost
-"lib/rpc.cmx": for-pack(Signpost)
+"lib/sp_rpc.cmx": for-pack(Signpost)
 "lib/clientSignalling.cmx": for-pack(Signpost)
 "lib/config.cmx": for-pack(Signpost)
 "lib/connections.cmx": for-pack(Signpost)
@@ -40,6 +40,7 @@
 "lib/sp_controller.cmx": for-pack(Signpost)
 "lib/ssh.cmx": for-pack(Signpost)
 "lib/sshConnection.cmx": for-pack(Signpost)
+"lib/tactic.cmx": for-pack(Signpost)
 "lib/tactic_impl.cmx": for-pack(Signpost)
 "lib/tap.cmx": for-pack(Signpost)
 "lib/tcp.cmx": for-pack(Signpost)
@@ -94,19 +95,6 @@
 <lib/remoteControl.{native,byte}>: pkg_openflow
 <lib/remoteControl.{native,byte}>: pkg_crypto_keys
 <lib/remoteControl.{native,byte}>: pkg_cstruct
-# Executable connections_test
-<lib/conn_test.{native,byte}>: use_signpost
-<lib/conn_test.{native,byte}>: pkg_mirage
-<lib/conn_test.{native,byte}>: pkg_mirage-net
-<lib/conn_test.{native,byte}>: pkg_re.str
-<lib/conn_test.{native,byte}>: pkg_re
-<lib/conn_test.{native,byte}>: pkg_lwt
-<lib/conn_test.{native,byte}>: pkg_lwt.syntax
-<lib/conn_test.{native,byte}>: pkg_lwt.unix
-<lib/conn_test.{native,byte}>: pkg_uri
-<lib/conn_test.{native,byte}>: pkg_openflow
-<lib/conn_test.{native,byte}>: pkg_crypto_keys
-<lib/conn_test.{native,byte}>: pkg_cstruct
 <lib/*.ml{,i}>: use_signpost
 <lib/*.ml{,i}>: pkg_mirage
 <lib/*.ml{,i}>: pkg_mirage-net

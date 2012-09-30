@@ -1,6 +1,6 @@
 # OASIS_START
-# DO NOT EDIT (digest: 82706823930e903169d4b974c366e764)
-Rpc
+# DO NOT EDIT (digest: bf40aa17077cbf9d232245a09b5a163a)
+Sp_rpc
 ClientSignalling
 Config
 Connections
@@ -25,6 +25,7 @@ Sp
 Sp_controller
 Ssh
 SshConnection
+Tactic
 Tactic_impl
 Tap
 Tcp

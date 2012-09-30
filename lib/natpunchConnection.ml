@@ -18,6 +18,7 @@ open Lwt
 open Lwt_unix
 open Lwt_list
 open Printf
+open Sp_rpc
 
 module OP = Openflow.Ofpacket
 module OC = Openflow.Ofcontroller
@@ -89,7 +90,7 @@ let test a b =
     try_lwt 
     (* check if two nodes can connect *)
       let external_ip = List.hd (Nodes.get_public_ips b) in
-      let rpc = (Rpc.create_tactic_request "natpanch" Rpc.TEST "client_test" 
+      let rpc = (create_tactic_request "natpanch" TEST "client_test" 
                  [(List.hd (Nodes.get_public_ips b)); 
                   (Int64.to_string SignalHandler.echo_port); b; 
                   (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b));]) in
@@ -137,7 +138,7 @@ let enable a b =
       let b_q = sprintf "%s.d%d" b Config.signpost_number in 
       let external_ip = (List.hd (Nodes.get_public_ips b)) in
       let rpc = 
-        Rpc.create_tactic_request "natpanch" Rpc.ENABLE "register_host"
+        create_tactic_request "natpanch" ENABLE "register_host"
           [b;external_ip;(Uri_IP.ipv4_to_string (Nodes.get_sp_ip b));
            (Int32.to_string  conn.conn_id );] in
       lwt _ = (Nodes.send_blocking a rpc) in
@@ -181,8 +182,8 @@ let handle_notification _ method_name arg_list =
            * tried to send a packet from the source port to the destination. *)
           let nw_dst = List.hd (Nodes.get_public_ips src) in
           let rpc = 
-            (Rpc.create_tactic_request "natpanch" 
-             Rpc.CONNECT "server_connect" 
+            (create_tactic_request "natpanch" 
+             CONNECT "server_connect" 
              [src; nw_dst; tp_src; tp_dst; (Uri_IP.ipv4_to_string (Nodes.get_sp_ip dst));
               (Uri_IP.ipv4_to_string (Nodes.get_sp_ip src));conn_id; isn;]) in
           lwt _ = Nodes.send_blocking dst rpc in 

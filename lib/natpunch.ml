@@ -20,6 +20,7 @@ open Lwt
 open Lwt_unix
 open Lwt_list
 open Printf
+open Sp_rpc
 
 module OP = Openflow.Ofpacket
 module OC = Openflow.Ofcontroller
@@ -204,7 +205,7 @@ module Manager = struct
 
               (* Notify the signpost server in order to spoof packets *)
               let rpc =
-                (Rpc.create_tactic_notification "natpanch" Rpc.CONNECT 
+                (create_tactic_notification "natpanch" CONNECT 
                    "client_connect" 
                    [(Nodes.get_local_name ());node.name;
                     (string_of_int m.OP.Match.tp_src); 
@@ -288,7 +289,7 @@ module Manager = struct
             (*Inform the cloud server in order to propagate it over the control
             * channel *)
             let rpc =
-              (Rpc.create_tactic_notification "natpanch" Rpc.CONNECT 
+              (create_tactic_notification "natpanch" CONNECT 
                  "server_connect" 
                  [node.name;(Nodes.get_local_name ()); 
                   (Uri_IP.ipv4_to_string m.OP.Match.nw_src);

@@ -17,16 +17,16 @@
 type sp_msg = {
   src_ip : int32;
   src_port : int;
-  cmd : Rpc.t option;
+  cmd : Sp_rpc.t option;
 }
 
 val echo_port: int64
 
 module type HandlerSig = sig
-  val handle_request : Lwt_unix.file_descr -> int32 ->  Rpc.command ->
-    Rpc.arg list -> Sp.request_response Lwt.t
+  val handle_request : Lwt_unix.file_descr -> int32 ->  Sp_rpc.command ->
+    Sp_rpc.arg list -> Sp.request_response Lwt.t
   val handle_notification : Lwt_unix.file_descr -> int32 -> 
-    Rpc.command -> Rpc.arg list -> unit Lwt.t
+    Sp_rpc.command -> Sp_rpc.arg list -> unit Lwt.t
 end
 
 module type Functor = sig

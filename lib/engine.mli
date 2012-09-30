@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+open Sp_rpc
 
 (** Find is the main entry point to the connections module.
  *  Given the name of two endpoints it will attempt to establish
@@ -22,7 +23,7 @@
  *)
 val find : Sp.name -> Sp.name -> Sp.addressable Lwt.t
 
-val tactic_by_name : Rpc.tactic_name -> (module Sp.TacticSig) option
+val tactic_by_name : tactic_name -> (module Sp.TacticSig) option
 val connect_using_tactic : string -> string -> string -> bool Lwt.t
 val dump_tunnels_t: unit -> unit Lwt.t
 val disconnect: string -> string -> string -> unit Lwt.t

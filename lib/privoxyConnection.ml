@@ -14,12 +14,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
 open Lwt
 open Lwt_unix
 open Printf
 open Int64
-
+open Sp_rpc
 
 exception Privoxy_error
 
@@ -31,12 +30,12 @@ let name () = "privoxy"
 let connect a b =
   (* Trying to see if connectivity is possible *)
   eprintf "[proxy] enabling between privoxy on %s \n%!" a;
-  let rpc = (Rpc.create_tactic_request "privoxy" 
-               Rpc.CONNECT "start" []) in
+  let rpc = (create_tactic_request "privoxy" 
+               CONNECT "start" []) in
     try
       lwt res = (Nodes.send_blocking a rpc) in 
-      let rpc = (Rpc.create_tactic_request "privoxy" 
-                   Rpc.CONNECT "forward" []) in
+      let rpc = (create_tactic_request "privoxy" 
+                   CONNECT "forward" []) in
       lwt res = (Nodes.send_blocking a rpc) in 
         return true
     with exn -> 

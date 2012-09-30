@@ -14,12 +14,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
 open Lwt
 open Lwt_unix
 open Printf
 open Int64
-
+open Sp_rpc
 
 exception Tor_error
 
@@ -31,12 +30,12 @@ let name () = "tor"
 let connect a b =
   (* Trying to see if connectivity is possible *)
   eprintf "[proxy] enabling between tor on %s \n%!" a;
-  let rpc = (Rpc.create_tactic_request "tor" 
-               Rpc.CONNECT "start" []) in
+  let rpc = (create_tactic_request "tor" 
+               CONNECT "start" []) in
     try
       lwt res = (Nodes.send_blocking a rpc) in 
-      let rpc = (Rpc.create_tactic_request "tor" 
-                   Rpc.CONNECT "forward" []) in
+      let rpc = (create_tactic_request "tor" 
+                   CONNECT "forward" []) in
       lwt res = (Nodes.send_blocking a rpc) in 
         return true
     with exn -> 

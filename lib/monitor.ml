@@ -18,6 +18,7 @@ open Lwt
 open Lwt_unix
 open Lwt_list
 open Printf
+open Sp_rpc
 
 exception MonitorDisconnect  
 
@@ -80,7 +81,7 @@ let test_sp_dst (ip,state) =
     (connect_client state.dst_ip 11000) 
   with _ -> 
     let args = [(Nodes.get_local_name ()); state.dst_name; state.tactic_name;] in
-    let rpc = Rpc.create_notification "tactic_disconnected" args in 
+    let rpc = create_notification "tactic_disconnected" args in 
     lwt _ = Nodes.send_to_server rpc in
     let _ = del_dst ip state.tactic_name in 
     printf "disconnect %s from tactic %s\n%!" state.tactic_name state.dst_name;

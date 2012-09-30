@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+open Sp_rpc
 
 type tactic_state = 
   | SUCCESS_INACTIVE
@@ -31,10 +32,10 @@ type link_state =
  *  if such already exist.
  *)
 (*
-val store_addresses : Sp.name -> Sp.name -> Rpc.tactic_name -> status -> (Sp.ip * Sp.ip) list -> unit
+val store_addresses : Sp.name -> Sp.name -> tactic_name -> status -> (Sp.ip * Sp.ip) list -> unit
  *)
 val store_tactic_state : Sp.name -> Sp.name -> 
-      Rpc.tactic_name -> tactic_state -> int option -> unit
+      tactic_name -> tactic_state -> int option -> unit
 
 (** Stores all known public IPs for a named entity.
  *  It should not be used to store new public IPs that result
@@ -62,7 +63,7 @@ val set_link_status : Sp.name -> Sp.name -> link_state -> unit
  *  not previously been run for the named pair 
  *)
 val get_tactic_status : Sp.name -> Sp.name -> 
-  Rpc.tactic_name -> tactic_state
+  tactic_name -> tactic_state
 
 val dump_tunnels: unit -> unit Lwt.t
 val get_active_connections: unit -> (string * string) list 

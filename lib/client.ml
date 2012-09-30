@@ -19,6 +19,7 @@ open Lwt
 open Printf
 open Int64
 open Re_str
+open Sp_rpc
 
 module DP = Dns.Packet
 module IncomingSignalling = SignalHandler.Make (ClientSignalling)
@@ -50,7 +51,7 @@ let nxdomain =
 
 let register_mobile_host name = 
   let args = [!node_name; name] in
-  let rpc = Rpc.create_notification "register_mobile_host" args in
+  let rpc = create_notification "register_mobile_host" args in
       Nodes.send_to_server rpc
 
 let bind_ns_fd () =
@@ -169,7 +170,7 @@ let get_hello_rpc ips =
   let _::mac::_ = test in
 (*   let mac = Net_cache.Arp_cache.mac_of_string mac in  *)
   let args = [!node_name; !node_ip; string_port; mac;] @ ips in
-    Rpc.create_notification "hello" args
+    create_notification "hello" args
 
 let update_server_if_state_has_changed () =
   let ips = Nodes.discover_local_ips () in
@@ -203,7 +204,7 @@ lwt _ =
   (try node_ip := Sys.argv.(2) with _ -> usage ());
   (try node_port := (of_int (int_of_string Sys.argv.(3))) with _ -> usage ());
 (*   lwt _ = waiter_connect in  *)
-    Manager.create (
+    Net.Manager.create (
       fun mgr _ _ -> 
         join [ 
          signal_t ~port:(Int64.of_int Config.signal_port) (client_t);
