@@ -15,7 +15,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
+open Pktgen
 open Lwt
 open Lwt_unix
 open Lwt_list
@@ -94,7 +94,7 @@ module Manager = struct
                    answers=[serv_ptr; serv_srv;serv_txt];
                    authorities=[]; additionals=[]}) in
     let dns_data = DP.marshal_dns pkt in
-    let pkt = Tcp.gen_udp_pkt "\x00\x22\x15\x7e\x93\x2a" 
+    let pkt = gen_udp_pkt "\x00\x22\x15\x7e\x93\x2a" 
                 "\x01\x00\x5e\x00\x00\xfb" 0xc0a80004l
                 0xe00000fbl 5353 5353 dns_data in 
     let bs = (OP.Packet_out.packet_out_to_bitstring 

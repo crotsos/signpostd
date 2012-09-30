@@ -11,7 +11,7 @@ Library signpost
   Path: lib
   Pack: true
   BuildTools: ocamlbuild
-  Modules: Sp_rpc,ClientSignalling,Config,Connections,Direct,DirectConnection,Engine,Json,Monitor,Natpunch,NatpunchConnection,Net_cache,Network,Nodes,Openvpn,OpenvpnConnection,Privoxy,PrivoxyConnection,RemoteControl,ServerSignalling,SignalHandler,Sp,Sp_controller,Ssh,SshConnection,Tactic,Tactic_impl,Tap,Tcp,Tor,TorConnection
+  Modules: Sp_rpc,ClientSignalling,Config,Connections,Direct,DirectConnection,Engine,Json,Monitor,Natpunch,NatpunchConnection,Net_cache,Network,Nodes,Openvpn,OpenvpnConnection,Privoxy,PrivoxyConnection,RemoteControl,ServerSignalling,SignalHandler,Sp,Sp_controller,Ssh,SshConnection,Tactic,Tactic_impl,Tap,Pktgen,Tor,TorConnection
   BuildDepends: lwt.syntax,lwt,re,lwt.unix,uri,re.str,openflow,crypto_keys,cstruct,mirage,mirage-net
 
 Executable server

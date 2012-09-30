@@ -15,7 +15,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
+open Pktgen
 open Lwt
 open Lwt_list
 open Printf
@@ -150,7 +150,7 @@ module Manager = struct
     
 (*
     (* ack the the SYNACK from privoxy *)
-    let pkt = Tcp.gen_server_ack 
+    let pkt = gen_server_ack 
                 (Int32.sub conn.src_isn
                    (Int32.of_int ((String.length conn.data) - 1) ) )
                 (Int32.add conn.dst_isn 1l) 
@@ -166,7 +166,7 @@ module Manager = struct
  *)
   (* SYNACK the client in order to establish the
      * connection *)
-    let pkt = Tcp.gen_server_synack 
+    let pkt = gen_server_synack 
                 (Int32.add conn.dst_isn 68l ) (* 68 bytes for http reply *)
                 (Int32.add conn.src_isn 1l)
                 conn.src_mac conn.dst_mac 
@@ -181,7 +181,7 @@ module Manager = struct
 
   (* Send an http request to setup the persistent connection to the ssl server *)
   let sock_req = Lwt_bytes.of_string conn.data in 
-  let pkt = (Tcp.gen_tcp_data_pkt 
+  let pkt = (gen_tcp_data_pkt 
                (Int32.sub conn.src_isn
                   (Int32.of_int ((String.length conn.data) - 1)) )
                (Int32.add conn.dst_isn 1l)
@@ -199,7 +199,7 @@ module Manager = struct
     let (_, gw, _) = Net_cache.Routing.get_next_hop conn.dst_ip in
     
     (* ack the privoxy connect http reply *)
-    let pkt = Tcp.gen_server_ack 
+    let pkt = gen_server_ack 
                 (Int32.add conn.src_isn 1l)
                 (Int32.add conn.dst_isn 69l) 
                 conn.src_mac conn.dst_mac
@@ -212,7 +212,7 @@ module Manager = struct
                (Lwt_bytes.create 4096) in  
     lwt _ = OC.send_of_data controller dpid bs in
 
-    let pkt = Tcp.gen_server_ack 
+    let pkt = gen_server_ack 
                 (Int32.add conn.dst_isn 68l ) (* 68 bytes for http reply *)
                 (Int32.add conn.src_isn 1l)
                 conn.src_mac conn.dst_mac 
@@ -363,7 +363,7 @@ module Manager = struct
                               src_port in
 (*                     let Some(dst_mac,_, _ ) = Net_cache.Switching.ip_of_mac
  *                     gw in  *)
-                    let isn = Tcp.get_tcp_sn data in
+                    let isn = get_tcp_sn data in
                     let req = Printf.sprintf "CONNECT %s:443 HTTP/1.1\nUser-Agent: signpst\nProxy-Connection: keep-alive\nHost: %s\n\n"
                                 (Uri_IP.ipv4_to_string m.OP.Match.nw_dst)
                                 (Uri_IP.ipv4_to_string m.OP.Match.nw_dst) in 
@@ -373,7 +373,7 @@ module Manager = struct
                                    src_isn=isn;dst_isn=0l; data=req;} in
                       Hashtbl.add conn_db.http_conns src_port mapping;
                       (* establishing connection with privoxy socket *)
-                      let pkt = Tcp.gen_server_syn data
+                      let pkt = gen_server_syn data
                                   (Int32.sub isn
                                      ((Int32.of_int ((String.length mapping.data)))) )
                                   mapping.src_mac mapping.dst_mac
@@ -409,15 +409,15 @@ module Manager = struct
                        (
                          match conn.ssl_state with
                            | SSL_SERVER_INIT -> ( 
-                               let isn = Tcp.get_tcp_sn data in 
+                               let isn = get_tcp_sn data in 
                                  conn.dst_isn <- isn;
                                  conn.ssl_state <- SSL_CLIENT_INIT;
                                  ssl_send_conect_req controller dpid conn m dst_port )
                            | SSL_CLIENT_INIT -> (
-                               let payload_len = Cstruct.len (Tcp.get_tcp_packet_payload data) in
+                               let payload_len = Cstruct.len (get_tcp_packet_payload data) in
                                  if (payload_len > 0) then (
 (*
-                                   let isn = Tcp.get_tcp_sn data in 
+                                   let isn = get_tcp_sn data in 
                                      conn.dst_isn <- (Int32.add isn 
                                                         (Int32.of_int payload_len));
  *)

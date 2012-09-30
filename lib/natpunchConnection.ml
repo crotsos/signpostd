@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+open Pktgen
 open Lwt
 open Lwt_unix
 open Lwt_list
@@ -210,7 +211,7 @@ let handle_notification _ method_name arg_list =
           let Some(mac_b) = Net_cache.Arp_cache.mac_of_ip ip_b in
             Printf.printf "dst_mac:%s, src_mac:%s\n%!" (Nodes.get_node_mac b) 
               (Nodes.get_node_mac a);
-          let pkt = Tcp.gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
+          let pkt = gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
                       mac_b "\xf0\xad\x4e\x00\xcb\xab" ip_a ip_b
                       (int_of_string tp_dst) (int_of_string tp_src)
           in
@@ -222,7 +223,7 @@ let handle_notification _ method_name arg_list =
                     ~data:pkt ~in_port:(OP.Port.No_port) () ))
               (Lwt_bytes.create 4096) in  
 
-          let pkt = Tcp.gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
+          let pkt = gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
                       mac_a "\xf0\xad\x4e\x00\xcb\xab" ip_b ip_a
                       (int_of_string tp_src) (int_of_string tp_dst)
           in
