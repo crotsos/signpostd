@@ -142,6 +142,8 @@ let signal_t () =
 
 lwt _ =
   let _ = Net_cache.Routing.load_routing_table () in 
+  
+  let _ = printf "routing table loaded...\n%!" in 
   let _ = Net_cache.Arp_cache.load_arp () in
     Net.Manager.create (
     fun mgr dev id -> 
