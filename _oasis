@@ -11,10 +11,11 @@ Library signpost
   Path: lib
   Pack: true
   BuildTools: ocamlbuild
+  CompiledObject: native
   Modules: Sp_rpc,ClientSignalling,Config,Connections,Direct,DirectConnection,Engine,Json,Monitor,Natpunch,NatpunchConnection,Net_cache,Network,Nodes,Openvpn,OpenvpnConnection,Privoxy,PrivoxyConnection,RemoteControl,ServerSignalling,SignalHandler,Sp,Sp_controller,Ssh,SshConnection,Tactic,Tactic_impl,Tap,Pktgen,Tor,TorConnection
   CSources:   tap_routing.c
-  CCOpt:      -O2              
-  CCLib:      -lc  
+  CCOpt:      -O2 -I/usr/include/libnl3
+  CCLib:      -lc -lnl-3 -lnl-route-3
   BuildDepends: lwt.syntax,lwt,re,lwt.unix,uri,re.str,openflow,crypto_keys,cstruct,mirage,mirage-net
 
 Executable server
@@ -23,7 +24,7 @@ Executable server
   Custom:             true
   CompiledObject:     native
   Install:            false
-  BuildDepends:       signpost, ocamlgraph, dns, dns.lwt, re.str, re, mirage, mirage-net, lwt
+  BuildDepends:       signpost, ocamlgraph, dns, dns.lwt, re.str, re, mirage, mirage-net, lwt, openflow
 
 Executable client
   Path:               lib
