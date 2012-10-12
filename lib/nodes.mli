@@ -45,7 +45,8 @@ val wake_up_thread_with_reply : id -> t -> unit Lwt.t
 val set_signalling_channel : Sp.name -> Lwt_unix.file_descr -> unit
 val set_server_signalling_channel : Lwt_unix.file_descr -> unit
 val set_local_ips : Sp.name -> Sp.ip list -> unit
-val discover_local_ips : ?dev:string -> unit -> Sp.ip list
+val discover_local_ips : ?dev:string -> unit -> 
+  (string * string * int32) list
 (* val check_for_publicly_accessible_ips : Sp.name -> Sp.ip list -> Sp.ip list
  * Lwt.t *)
 val get_local_ips : Sp.name -> Sp.ip list

@@ -19,8 +19,6 @@ open Printf
 
 module OP = Openflow.Ofpacket
 
-external get_local_ips: unit ->  (string * string * int) list = "ocaml_get_local_ip"
-
 module Routing = struct
   type t = {
     ip: int32;
@@ -72,9 +70,8 @@ module Routing = struct
             gw=(of_int gw); local_ip=(of_int local_ip); 
             dev_id;})
         )  (get_routing_table ()) in
-    let local_ips = 
-      List.map (fun (dev, mac, ip) ->  Int32.of_int ip)
-        (get_local_ips ()) in
+    let local_ips = List.fold_right (fun (_,_,i) r -> r@[i] ) 
+                      (Nodes.discover_local_ips ()) [] in
     let filter_local_net_fib ips fib r =
       try 
         match (fib.mask) with
@@ -222,10 +219,10 @@ module Arp_cache = struct
 
   let load_arp () =
      (* reading ip dev mappings *)
-    let local_ips = get_local_ips () in 
+    let local_ips = Nodes.discover_local_ips () in 
     let _ = List.iter 
               (fun (dev, mac, ip) -> 
-                 let _ = add_mapping mac (Int32.of_int ip) in 
+                 let _ = add_mapping mac ip in 
                    Port_cache.add_mac mac 
                      (OP.Port.int_of_port OP.Port.Local)
                ) local_ips in 

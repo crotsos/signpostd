@@ -29,6 +29,11 @@ exception InconsistentState of string
 let sp_ip_network = "172.31.0.0"
 let sp_ip_netmask = 16
 
+external os_get_local_ips: unit ->  (string * string * int) list = 
+  "ocaml_get_local_ip"
+
+
+
 (* Nodes have a lot of associated information.
  * It is all part of the node store.
  *)
@@ -245,18 +250,10 @@ let set_local_ips name local_ips =
     update name {node with local_ips = local_ips}
 
 let discover_local_ips ?(dev="") () =
-  let ip_stream = (Unix.open_process_in
-  (Config.dir ^ "/client_tactics/get_local_ips " ^ dev)) in
-  let buf = String.make 1500 ' ' in
-  let len = input ip_stream buf 0 1500 in
-  let ips = Re_str.split (Re_str.regexp " ") (String.sub buf 0 (len-1)) in
-  let rec print_ips = function
-    | ip :: ips ->
-(*         Printf.printf "ip: %s\n%!" ip; *)
-        print_ips ips
-    | [] -> ()
-  in
-  ips 
+  let ips = os_get_local_ips () in
+  List.fold_right
+    (fun (d,m,ip) r -> r @ [(d, m, (Int32.of_int ip))] ) 
+    ips []
 
 let add_public_ip name ip is_nattted is_random = 
   try
