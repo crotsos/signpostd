@@ -108,32 +108,32 @@ module Make (Handler : HandlerSig) = struct
             | 0 -> return ()
             | _ -> begin 
                 let (Some(rpc), len) = rpc_of_string !data in
-(*
-                  Printf.printf "XXXXXXXXXXXXX processing %s [remainder: %s]\n%!" 
-                    (String.sub !data 0 len)
-                    (String.sub !data len ((String.length !data) - len));
- *)
-                  data := String.sub !data len ((String.length !data) - len);
+               let _ = data := String.sub !data len 
+                          ((String.length !data) - len) in
                   let msg = 
                     match dst with 
-                      |  Unix.ADDR_UNIX _ ->{src_ip=0l;src_port=0; cmd=Some(rpc);}
-                      | Unix.ADDR_INET (a,_) -> {
-                          src_ip=(Uri_IP.string_to_ipv4(Unix.string_of_inet_addr a)); 
+                      |  Unix.ADDR_UNIX _ ->
+                          {src_ip=0l;src_port=0; 
+                          cmd=Some(rpc);}
+                      | Unix.ADDR_INET (a,_) -> 
+                          {src_ip=(Uri_IP.string_to_ipv4(
+                            Unix.string_of_inet_addr a)); 
                           src_port=0; cmd=Some(rpc);}
                   in 
-                  let _ = Lwt.ignore_result (dispatch_rpc sock msg) in 
+                  let _ = Lwt.ignore_result 
+                            (dispatch_rpc sock msg) in 
                     process_buffer ()
               end
         in
         while_lwt !running do
           let buf = String.create 4096 in
-          lwt len = Lwt_unix.recv sock buf 0 (String.length buf) [] in
+          lwt len = Lwt_unix.recv sock buf 0 
+                      (String.length buf) [] in
           match len with 
             | 0 -> begin 
                 (* TODO: Propagate an event to engine to serverSignal to clean up 
                  * state for node *)
-                printf "Channel read 0 bytes\n%!";
-                Printf.printf "[signal] session terminated with end-node %s\n%!"
+                printf "[signal] session terminated end-node %s\n%!"
                   (sockaddr_to_string dst);
                 running := false;
                 return () 
@@ -141,7 +141,8 @@ module Make (Handler : HandlerSig) = struct
             | _ ->
                 let subbuf = String.sub buf 0 len in
                   data := !data ^ subbuf;
-                  eprintf "tcp recvfrom %s : %s\n%!" (sockaddr_to_string dst) subbuf;
+                  eprintf "tcp recvfrom %s : %s\n%!" 
+                      (sockaddr_to_string dst) subbuf;
                   process_buffer ()
         done
     with exn ->
@@ -149,6 +150,12 @@ module Make (Handler : HandlerSig) = struct
         (sockaddr_to_string dst) (Printexc.to_string exn);
       running := false;
       return ()
+
+cstruct signal_msg {
+  uint32_t ip;
+  uint16_t port;
+  uint16_t name_len
+} as big_endian 
 
   let echo_testing_server listen_port =
     lwt server_sock = bind_fd ~address:"0.0.0.0" ~port:listen_port in 
@@ -160,28 +167,31 @@ module Make (Handler : HandlerSig) = struct
         let ip = (Uri_IP.string_to_ipv4 (Unix.string_of_inet_addr ip)) in
         let rcv_buf = String.create 2048 in 
         lwt recvlen = Lwt_unix.recv client_sock rcv_buf 0 1048 [] in
-        let buf = Bitstring.bitstring_of_string 
-                    (String.sub rcv_buf 0 recvlen) in 
-        bitmatch buf with 
-          | {loc_ip:32; loc_port:16; 
-             name_len:16; name:(name_len*8):string} ->
-            (printf "received %s from %s:%d external %s:%d\n%!"
+        let buf = Lwt_bytes.of_string  
+                    (String.sub rcv_buf 0 recvlen) in
+        let loc_ip = get_signal_msg_ip buf in 
+        let loc_port = get_signal_msg_port buf in 
+        let name_len = get_signal_msg_name_len buf in 
+        let buf = Cstruct.shift buf sizeof_signal_msg in 
+        let name = Cstruct.copy_buffer buf 0 name_len in 
+        let _ = printf "received %s from %s:%d external %s:%d\n%!"
               name (Uri_IP.ipv4_to_string loc_ip) loc_port 
-              (Uri_IP.ipv4_to_string ip) port;
-            Nodes.add_public_ip name (Uri_IP.ipv4_to_string ip) (loc_ip = ip) 
-              (loc_port = port); 
-            let reply = BITSTRING{ip:32; port:16; name_len:16;
-                                  name:(name_len*8):string} in 
-            let reply_str = Bitstring.string_of_bitstring reply in 
-              lwt _ = Lwt_unix.send client_sock reply_str 0 
+              (Uri_IP.ipv4_to_string ip) port in 
+        let _ = Nodes.add_public_ip name (Uri_IP.ipv4_to_string ip) 
+                  (loc_ip = ip) (loc_port = port) in
+        let bits = Lwt_bytes.create 1024 in 
+        let _ = set_signal_msg_ip bits ip in 
+        let _ = set_signal_msg_port bits port in
+        let _ = set_signal_msg_name_len bits name_len in 
+        let _ = Cstruct.set_buffer name 0 bits sizeof_signal_msg
+                  name_len in 
+        let reply_str = Lwt_bytes.to_string bits in 
+        lwt _ = Lwt_unix.send client_sock reply_str 0 
                         (String.length reply_str) [] in 
             
-              return (Lwt_unix.shutdown client_sock Lwt_unix.SHUTDOWN_ALL))
-    (*     let x = send client_sock str 0 len [] in *)
-          | {_} ->
-              printf "[echo_server] failed to parse packet\n%!";
-              return (Lwt_unix.shutdown client_sock Lwt_unix.SHUTDOWN_ALL)
-      with exn -> 
+          return (Lwt_unix.shutdown client_sock 
+                    Lwt_unix.SHUTDOWN_ALL)
+     with exn -> 
         Printf.eprintf "[echo_server]daemon error: %s\n%!" 
           (Printexc.to_string exn);
         return ()
@@ -199,15 +209,22 @@ module Make (Handler : HandlerSig) = struct
 
 let thread_client ~address ~port init =
     (* Listen for UDP packets *)
-  let _ = Lwt.ignore_result (echo_testing_server echo_port) in
-  lwt fd = create_fd ~address ~port in
-    lwt src = try_lwt
-      let hent = Unix.gethostbyname address in
-      return (Unix.ADDR_INET (hent.Unix.h_addr_list.(0), (to_int port)))
-    with _ ->
-      raise_lwt (Failure ("cannot resolve " ^ address))
+  try_lwt
+    let _ = Lwt.ignore_result (echo_testing_server echo_port) in
+    lwt fd = create_fd ~address ~port in
+    lwt src = 
+      try_lwt
+        let hent = Unix.gethostbyname address in
+        return (Unix.ADDR_INET (hent.Unix.h_addr_list.(0), 
+                                (to_int port)))
+      with _ ->
+        raise_lwt (Failure ("cannot resolve " ^ address))
     in
       lwt _ = Lwt_unix.connect fd src in
       let _ = Nodes.set_server_signalling_channel fd in
+      let _ = printf "ready to connect\n%!" in
         (init ()) <&> (process_channel fd src )
+  with ex -> 
+    return (eprintf "[client-signal] error %s: %s\n%!" 
+    (Printexc.to_string ex) (Printexc.get_backtrace ()))
 end
