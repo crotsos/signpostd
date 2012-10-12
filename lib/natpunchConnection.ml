@@ -14,13 +14,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+open Pktgen
 open Lwt
 open Lwt_unix
 open Lwt_list
 open Printf
+open Sp_rpc
 
-module OP = Openflow.Packet
-module OC = Openflow.Controller
+module OP = Openflow.Ofpacket
+module OC = Openflow.Ofcontroller
 module OE = OC.Event
 
 let pp = Printf.printf
@@ -89,7 +91,7 @@ let test a b =
     try_lwt 
     (* check if two nodes can connect *)
       let external_ip = List.hd (Nodes.get_public_ips b) in
-      let rpc = (Rpc.create_tactic_request "natpanch" Rpc.TEST "client_test" 
+      let rpc = (create_tactic_request "natpanch" TEST "client_test" 
                  [(List.hd (Nodes.get_public_ips b)); 
                   (Int64.to_string SignalHandler.echo_port); b; 
                   (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b));]) in
@@ -137,7 +139,7 @@ let enable a b =
       let b_q = sprintf "%s.d%d" b Config.signpost_number in 
       let external_ip = (List.hd (Nodes.get_public_ips b)) in
       let rpc = 
-        Rpc.create_tactic_request "natpanch" Rpc.ENABLE "register_host"
+        create_tactic_request "natpanch" ENABLE "register_host"
           [b;external_ip;(Uri_IP.ipv4_to_string (Nodes.get_sp_ip b));
            (Int32.to_string  conn.conn_id );] in
       lwt _ = (Nodes.send_blocking a rpc) in
@@ -181,8 +183,8 @@ let handle_notification _ method_name arg_list =
            * tried to send a packet from the source port to the destination. *)
           let nw_dst = List.hd (Nodes.get_public_ips src) in
           let rpc = 
-            (Rpc.create_tactic_request "natpanch" 
-             Rpc.CONNECT "server_connect" 
+            (create_tactic_request "natpanch" 
+             CONNECT "server_connect" 
              [src; nw_dst; tp_src; tp_dst; (Uri_IP.ipv4_to_string (Nodes.get_sp_ip dst));
               (Uri_IP.ipv4_to_string (Nodes.get_sp_ip src));conn_id; isn;]) in
           lwt _ = Nodes.send_blocking dst rpc in 
@@ -197,7 +199,7 @@ let handle_notification _ method_name arg_list =
           (* connection parameter *)
           let a::b::tp_src::tp_dst::isn::ack::_ = arg_list in 
 
-          let Some(port) = Net_cache.Port_cache.dev_to_port_id Config.net_intf in 
+          let port = Net_cache.Port_cache.dev_to_port_id Config.net_intf in 
           let port = OP.Port.port_of_int port in
           let controller = (List.hd 
                   Sp_controller.switch_data.Sp_controller.of_ctrl) in 
@@ -209,23 +211,28 @@ let handle_notification _ method_name arg_list =
           let Some(mac_b) = Net_cache.Arp_cache.mac_of_ip ip_b in
             Printf.printf "dst_mac:%s, src_mac:%s\n%!" (Nodes.get_node_mac b) 
               (Nodes.get_node_mac a);
-          let pkt = Tcp.gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
+          let pkt = gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
                       mac_b "\xf0\xad\x4e\x00\xcb\xab" ip_a ip_b
                       (int_of_string tp_dst) (int_of_string tp_src)
           in
-          let bs_a = (OP.Packet_out.packet_out_to_bitstring 
-                      (OP.Packet_out.create ~buffer_id:(-1l)
-                      ~actions:[OP.(Flow.Output(port, 2000))]
-                      ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
+          let bs_a = 
+            OP.marshal_and_sub
+              (OP.Packet_out.marshal_packet_out 
+                 (OP.Packet_out.create ~buffer_id:(-1l)
+                    ~actions:[OP.(Flow.Output(port, 2000))]
+                    ~data:pkt ~in_port:(OP.Port.No_port) () ))
+              (Lwt_bytes.create 4096) in  
 
-          let pkt = Tcp.gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
+          let pkt = gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
                       mac_a "\xf0\xad\x4e\x00\xcb\xab" ip_b ip_a
                       (int_of_string tp_src) (int_of_string tp_dst)
           in
-          let bs_b = (OP.Packet_out.packet_out_to_bitstring 
+          let bs_b = OP.marshal_and_sub 
+                       (OP.Packet_out.marshal_packet_out
                       (OP.Packet_out.create ~buffer_id:(-1l)
                       ~actions:[OP.(Flow.Output(port, 2000))]
-                      ~data:pkt ~in_port:(OP.Port.No_port) () )) in 
+                      ~data:pkt ~in_port:(OP.Port.No_port) () )) 
+                       (Lwt_bytes.create 4096) in 
           lwt _ =  OC.send_of_data controller dpid bs_b in
           lwt _ =  Lwt_unix.sleep 1.0 in
           lwt _ =  OC.send_of_data controller dpid bs_a in

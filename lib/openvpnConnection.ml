@@ -19,10 +19,10 @@ open Lwt
 open Lwt_unix
 open Printf
 open Int64
-open Rpc
+open Sp_rpc
 
-module OP = Openflow.Packet
-module OC = Openflow.Controller
+module OP = Openflow.Ofpacket
+module OC = Openflow.Ofcontroller
 
 exception Openvpn_error
 
@@ -121,8 +121,8 @@ let test a b =
   let pairwise_connection_test a b direction =
     try_lwt 
       Printf.printf "[openvpn] starting testing server...\n%!";
-      let rpc = (Rpc.create_tactic_request "openvpn" 
-        Rpc.TEST "server_start" [(string_of_int openvpn_port)]) in
+      let rpc = (create_tactic_request "openvpn" 
+        TEST "server_start" [(string_of_int openvpn_port)]) in
       lwt _ = (Nodes.send_blocking a rpc) in 
   
       let not_ips =  Nodes.get_local_ips b in
@@ -130,19 +130,19 @@ let test a b =
                   ((Nodes.get_local_ips a) @ (Nodes.get_public_ips a)) in  
 
       lwt res = 
-        Nodes.send_blocking b (Rpc.create_tactic_request "openvpn" 
-        Rpc.TEST "client" ([(string_of_int openvpn_port)] @ ips)) in   
+        Nodes.send_blocking b (create_tactic_request "openvpn" 
+        TEST "client" ([(string_of_int openvpn_port)] @ ips)) in   
   
-      let rpc = (Rpc.create_tactic_request "openvpn" 
-        Rpc.TEST "server_stop" [(string_of_int openvpn_port)]) in
+      let rpc = (create_tactic_request "openvpn" 
+        TEST "server_stop" [(string_of_int openvpn_port)]) in
       lwt _ = (Nodes.send_blocking a rpc) in 
         dir := direction;
         succ := true;
         ip := res;
       return ()
     with exn ->
-      lwt _ = Nodes.send_blocking a (Rpc.create_tactic_request "openvpn" 
-        Rpc.TEST "server_stop" [(string_of_int openvpn_port)]) in
+      lwt _ = Nodes.send_blocking a (create_tactic_request "openvpn" 
+        TEST "server_stop" [(string_of_int openvpn_port)]) in
       return (Printf.eprintf "[openvpn] Pairwise test %s->%s failed:%s\n%!" 
                 a b (Printexc.to_string exn))
   in
@@ -190,30 +190,30 @@ let test a b =
  * How do I enforce the Node module to provide the new ip to the end node? 
  *
  *)
-let start_vpn_server conn loc_node port rem_node domain =
+let start_vpn_server conn loc_node port q_rem_node domain rem_node =
   try_lwt
     let tunnel_ip = 
       Uri_IP.ipv4_to_string 
         (get_tactic_ip conn 
            (Printf.sprintf "%s.d%d" loc_node Config.signpost_number)) in 
       Nodes.send_blocking loc_node
-        (Rpc.create_tactic_request "openvpn" Rpc.CONNECT "server" 
-           [(string_of_int port);rem_node;domain; 
+        (create_tactic_request "openvpn" CONNECT "server" 
+           [(string_of_int port);q_rem_node; rem_node;domain;
             (Int32.to_string conn.conn_id);tunnel_ip;]) 
   with ex -> 
     Printf.printf "[openvpn]Failed openvpn server %s:%s\n%!" loc_node
       (Printexc.to_string ex);
     raise Openvpn_error
 
-let start_vpn_client conn loc_node port q_rem_node domain =
+let start_vpn_client conn loc_node port q_rem_node domain rem_node =
   try_lwt
     let q_loc_node = Printf.sprintf "%s.d%d" loc_node Config.signpost_number in 
     let Some(extern_ip) = get_external_ip conn q_rem_node in 
     let extern_ip = Uri_IP.ipv4_to_string extern_ip in
     let tunnel_ip = Uri_IP.ipv4_to_string (get_tactic_ip conn q_loc_node) in
       Nodes.send_blocking loc_node 
-        (Rpc.create_tactic_request "openvpn" Rpc.CONNECT "client" 
-           [extern_ip; (string_of_int port);q_rem_node;
+        (create_tactic_request "openvpn" CONNECT "client" 
+           [extern_ip; (string_of_int port);q_rem_node; rem_node; 
             domain; (Int32.to_string conn.conn_id); tunnel_ip;]) 
   with ex -> 
     Printf.printf "[openvpn]Failed openvpn client %s: %s\n%!" 
@@ -225,12 +225,12 @@ let init_openvpn conn a b =
   lwt _ = start_vpn_server conn a openvpn_port 
                (sprintf "%s.d%d" b Config.signpost_number) 
                (sprintf "%s.d%d.%s" b Config.signpost_number
-                  Config.domain) in
+                  Config.domain) b in
   (*Init client on b and get ip *)
   lwt _ = start_vpn_client conn b openvpn_port
                (sprintf "%s.d%d" a Config.signpost_number) 
                (sprintf "%s.d%d.%s" a Config.signpost_number
-                  Config.domain) in
+                  Config.domain) a in
     return true
 
 let start_local_server conn a b =
@@ -238,14 +238,14 @@ let start_local_server conn a b =
    * do the magic? *)
   lwt _ = Openvpn.Manager.connect "server" 
             [(string_of_int openvpn_port); 
-             (sprintf "%s.d%d" a Config.signpost_number) ;
+             (sprintf "%s.d%d" a Config.signpost_number) ; a;
              (sprintf "d%d.%s" Config.signpost_number
                 Config.domain);
              (Int32.to_string conn.conn_id);
              (Uri_IP.ipv4_to_string (Nodes.get_sp_ip a)); ] in 
   lwt ip = Openvpn.Manager.connect "server" 
              [(string_of_int openvpn_port); 
-              (sprintf "%s.d%d" b Config.signpost_number) ;
+              (sprintf "%s.d%d" b Config.signpost_number) ; b;
               (sprintf "d%d.%s" Config.signpost_number
                  Config.domain);
              (Int32.to_string conn.conn_id);
@@ -265,11 +265,11 @@ let connect a b =
           lwt _ = start_vpn_client conn b openvpn_port 
                     (sprintf "d%d" Config.signpost_number) 
                     (sprintf "d%d.%s" Config.signpost_number 
-                       Config.domain) in 
+                       Config.domain) a in 
           lwt _ = start_vpn_client conn a openvpn_port
                     (sprintf "d%d" Config.signpost_number) 
                     (sprintf "d%d.%s" Config.signpost_number 
-                        Config.domain) in 
+                        Config.domain) a in 
              return true
         end
       | _ -> return false
@@ -287,7 +287,7 @@ let enable_openvpn conn a b =
     let [q_a; q_b] = List.map (
       fun n -> Printf.sprintf "%s.d%d" n Config.signpost_number) [a; b] in 
     let rpc = 
-      (Rpc.create_tactic_request "openvpn" Rpc.ENABLE "enable" 
+      (create_tactic_request "openvpn" ENABLE "enable" 
          [(Int32.to_string conn.conn_id); (Nodes.get_node_mac b); 
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_a));
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_b));
@@ -314,7 +314,7 @@ let disable_openvpn conn a b =
   try_lwt
     let q_a = Printf.sprintf "%s.d%d" a Config.signpost_number in 
     let rpc_a = 
-      (Rpc.create_tactic_request "ssh" Rpc.DISABLE "disable" 
+      (create_tactic_request "openvpn" DISABLE "disable" 
          [(Int32.to_string conn.conn_id); 
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_a));
           (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b))]) in

@@ -20,13 +20,13 @@ let signpost_number = 1
 let domain = "signpo.st"
 let ip_slash_24 = "172.16.11."
 (* This is the ip of the local test machine *)
-let external_ip = "192.168.1.106"
-let external_dns = "192.168.1.106"
+let external_ip = "23.23.179.30"
+let external_dns = "23.23.179.30"
 let dir = "/root/signpostd/"
 let conf_dir = dir ^ "/conf/"
 let tmp_dir = dir ^ "/tmp/"
 let iodine_node_ip = "172.16.11.1"
-let iodine_node_ip = "192.168.1.106"
+let iodine_node_ip = "23.23.179.30"
 let ns_server="8.8.8.8"
 (* for testing *)
 
@@ -35,8 +35,8 @@ let dns_port = 5354
 
 (* RPCs timeout after 5 minutes *)
 let rpc_timeout = 5 * 6
-let monitor_timeout = 2.0
-let monitor_interval = 5.0
-
+let monitor_timeout = 5.0
+let monitor_interval = 10.0
+let tunnel_check_interval = 30.0 
 
 let net_intf = "eth0"

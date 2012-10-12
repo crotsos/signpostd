@@ -16,5 +16,5 @@
  *)
 
 val add_dst: string -> string -> string -> unit
-val del_dst: string -> unit
+val del_dst: string -> string -> unit
 val monitor_t: unit -> unit Lwt.t

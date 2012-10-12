@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+open Sp_rpc 
 
 exception Client_error of string
 exception InvalidState of string
@@ -39,7 +40,7 @@ type request_response =
   | NoResponse
 
 module type TacticSig = sig
-  val name : unit -> Rpc.tactic_name
+  val name : unit -> tactic_name
   (* val provides : unit -> channel_property list *)
 (*   val  : name -> name -> bool Lwt.t *)
   val test : name -> name -> bool Lwt.t
@@ -48,9 +49,9 @@ module type TacticSig = sig
   val disable : name -> name -> bool Lwt.t
   val teardown : name -> name -> bool Lwt.t
   val weight: name -> name -> int
-  val handle_request : Rpc.action -> Rpc.method_name -> Rpc.arg list ->
+  val handle_request : action -> method_name -> arg list ->
     request_response Lwt.t
-  val handle_notification : Rpc.action -> Rpc.method_name -> Rpc.arg list ->
+  val handle_notification : action -> method_name -> arg list ->
     unit Lwt.t
 end
 

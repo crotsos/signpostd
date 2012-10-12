@@ -21,8 +21,8 @@ open Lwt_unix
 open Printf
 
 
-module OP = Openflow.Packet
-module OC = Openflow.Controller
+module OP = Openflow.Ofpacket
+module OC = Openflow.Ofcontroller
 module OE = OC.Event
 
 
@@ -43,9 +43,9 @@ type switch_state = {
 (*   mutable mac_cache: (mac_switch, OP.Port.t) Hashtbl.t; *)
   mutable mac_cache: (OP.eaddr, OP.Port.t) Hashtbl.t; 
   mutable dpid: OP.datapath_id list;
-  mutable of_ctrl: OC.state list;
+  mutable of_ctrl: OC.t list;
   mutable pkt_in_cb_cache : pkt_in_cb_struct list;
-  cb_register : (OP.Match.t, (OC.state -> OP.datapath_id -> 
+  cb_register : (OP.Match.t, (OC.t -> OP.datapath_id -> 
                    OE.e -> unit Lwt.t) ) Hashtbl.t;
 }
 
@@ -75,7 +75,8 @@ let preinstall_flows controller dpid port_id =
   let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:2 
               ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
               [OP.Flow.Output(OP.Port.Local, 2000)] () in 
-  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+             (Lwt_bytes.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in
 
   (* forward incomming multicast dns to local port. *)
@@ -85,7 +86,8 @@ let preinstall_flows controller dpid port_id =
   let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:2
               ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
               [OP.Flow.Output(OP.Port.Local, 2000)] () in 
-  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+             (Lwt_bytes.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in
 
   (* drop ipv6 traffic *)
@@ -101,7 +103,8 @@ let preinstall_flows controller dpid port_id =
               ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
 (*               [OP.Flow.Output(OP.Port.No_port, 0)]  *)
               [] () in 
-  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+             (Lwt_bytes.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in
 
   (* forward multicast traffic to local port *)
@@ -114,8 +117,10 @@ let preinstall_flows controller dpid port_id =
                ~in_port:(OP.Port.int_of_port port_id)
                ~dl_dst:"\xd8\x5d\x4c\xf9\x8a\x9a" () in
   let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:2
-              ~idle_timeout:0 ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local, 0)] () in 
-  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+              ~idle_timeout:0 ~buffer_id:(-1) 
+              [OP.Flow.Output(OP.Port.Local, 0)] () in 
+  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+             (Lwt_bytes.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in
 
   return ()
@@ -134,7 +139,8 @@ let preinstall_flows_eth0 controller dpid port_id =
   let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:1
               ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
               [OP.Flow.Output(OP.Port.Local, 2000)] () in 
-  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+             (Lwt_bytes.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in
 
   let flow = OP.Match.create_flow_match flow_wild 
@@ -142,7 +148,8 @@ let preinstall_flows_eth0 controller dpid port_id =
   let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:1
               ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
               [OP.Flow.Output(port_id, 2000)] () in 
-  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+             (Lwt_bytes.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in
 
   (* setup arp handling for 10.255.0.0/24 *)
@@ -187,7 +194,8 @@ let preinstall_flows_eth0 controller dpid port_id =
     let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
                 ~priority:2 ~idle_timeout:0 ~hard_timeout:0 
                 ~buffer_id:(-1) [OP.Flow.Output(port_id, 2000);] () in 
-    let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+               (Lwt_bytes.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in
 
   (* setup arp handling for 10.255.0.0/24 *)
@@ -202,7 +210,8 @@ let preinstall_flows_eth0 controller dpid port_id =
     let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
                 ~priority:2 ~idle_timeout:0  ~hard_timeout:0
                 ~buffer_id:(-1) [OP.Flow.Output(port_id,2000)] () in 
-    let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+               (Lwt_bytes.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in
 
     (* ARP handling *)
@@ -212,30 +221,30 @@ let preinstall_flows_eth0 controller dpid port_id =
     let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
                 ~priority:2 ~idle_timeout:0  ~hard_timeout:0
                 ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local,2000)] () in 
-    let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+               (Lwt_bytes.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in
       return ()
 
 let datapath_join_cb controller dpid evt =
   let (ports, dp) = 
     match evt with
-      | OE.Datapath_join (ports, c) -> (ports, c)
+      | OE.Datapath_join (c, ports) -> (ports, c)
       | _ -> invalid_arg "bogus datapath_join event match!" 
   in
     Printf.printf "[openflow] received %d ports\n%!" (List.length ports);
-    let action_ports = ref [] in
       (* I have the assumption that my initial setup contains only
       * local interfaces and not signpost *)
     List.iter ( 
       fun port -> 
         let _ = Net_cache.Port_cache.add_dev 
-          port.OP.Port.name port.OP.Port.port_id in
-          match port.OP.Port.port_id with
+          port.OP.Port.name port.OP.Port.port_no in
+          match port.OP.Port.port_no with
             | 0xfffe -> ()
             | _ ->
                 Lwt.ignore_result (
                    preinstall_flows controller dpid 
-                   (OP.Port.port_of_int port.OP.Port.port_id))
+                   (OP.Port.port_of_int port.OP.Port.port_no))
     ) ports;
     List.iter ( 
       fun port -> 
@@ -244,11 +253,11 @@ let datapath_join_cb controller dpid evt =
             | "eth0" ->
                 printf "Port eth0 found \n";
                 Lwt.ignore_result (preinstall_flows_eth0 controller
-                dpid (OP.Port.port_of_int port.OP.Port.port_id))
+                dpid (OP.Port.port_of_int port.OP.Port.port_no))
             | "eth1" -> 
                 printf "Port eth1 found \n";
                 Lwt.ignore_result (preinstall_flows_eth1 controller
-                dpid (OP.Port.port_of_int port.OP.Port.port_id))
+                dpid (OP.Port.port_of_int port.OP.Port.port_no))
             | _ -> ()
     ) ports;(*   lwt _ = preinstall_flows controller dpid OP.Port.Local ([]) in  *)
   switch_data.dpid <- switch_data.dpid @ [dp];
@@ -259,20 +268,20 @@ let port_status_cb controller dpid evt =
     match evt with
       | OE.Port_status (OP.Port.ADD, port, _) -> 
           pp "[openflow] device added %s %d\n%!" 
-            port.OP.Port.name port.OP.Port.port_id;
+            port.OP.Port.name port.OP.Port.port_no;
           lwt _ = preinstall_flows controller dpid 
-             (OP.Port.port_of_int port.OP.Port.port_id) in
+             (OP.Port.port_of_int port.OP.Port.port_no) in
           Net_cache.Port_cache.add_dev port.OP.Port.name 
-            port.OP.Port.port_id;
+            port.OP.Port.port_no;
           return ()
       | OE.Port_status (OP.Port.DEL, port, _) -> 
           pp "[openflow] device removed %s %d\n%!" 
-            port.OP.Port.name port.OP.Port.port_id;
+            port.OP.Port.name port.OP.Port.port_no;
           Net_cache.Port_cache.del_dev port.OP.Port.name;
           return ()
       | OE.Port_status (OP.Port.MOD, port, _) -> 
           pp "[openflow] device modilfied %s %d\n%!" 
-            port.OP.Port.name port.OP.Port.port_id;
+            port.OP.Port.name port.OP.Port.port_no;
           return ()
       | _ -> invalid_arg "bogus datapath_join event match!" 
   in
@@ -287,19 +296,21 @@ let register_handler flow cb =
               ~idle_timeout:0 ~hard_timeout:0
              ~buffer_id:(-1) ~priority:100
               [OP.Flow.Output(OP.Port.Controller, 150)] () in 
-  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
-  lwt _ = OC.send_of_data controller dpid bs in 
-    return (Hashtbl.replace switch_data.cb_register flow cb)
+ let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+            (Lwt_bytes.create 4096) in
+ lwt _ = OC.send_of_data controller dpid bs in 
+   return (Hashtbl.replace switch_data.cb_register flow cb)
 
-let unregister_handler flow_def cb = 
-  let controller = (List.hd switch_data.of_ctrl) in 
-  let dpid = (List.hd switch_data.dpid)  in            
-  let pkt = OP.Flow_mod.create flow_def 0L OP.Flow_mod.DELETE_STRICT 
+let unregister_handler flow_def _ = 
+(*   let pkt = OP.Flow_mod.create flow_def 0L OP.Flow_mod.DELETE_STRICT 
               ~buffer_id:(-1) ~priority:100
               [] () in 
-  let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
-(*   lwt _ =  OC.send_of_data controller dpid bs in *)
-  let lookup_flow flow entry =
+  let controller = (List.hd switch_data.of_ctrl) in 
+  let dpid = (List.hd switch_data.dpid)  in            
+   let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+             (Lwt_bytes.create 4096) in
+ lwt _ =  OC.send_of_data controller dpid bs in *)
+  let lookup_flow flow _ =
     if (OP.Match.flow_match_compare flow_def flow
            flow.OP.Match.wildcards) then 
     Hashtbl.remove switch_data.cb_register flow
@@ -334,7 +345,7 @@ let switch_packet_in_cb controller dpid buffer_id m data in_port =
   (* check if I know the output port in order to define what type of message
    * we need to send *)
     let ix = m.OP.Match.dl_dst in
-      if ( (OP.eaddr_is_broadcast ix)
+      if ( (ix = "\xff\xff\xff\xff\xff\xff")
         || (not (Hashtbl.mem switch_data.mac_cache ix)) ) 
       then (
         let pkt = 
@@ -342,7 +353,8 @@ let switch_packet_in_cb controller dpid buffer_id m data in_port =
                 ~actions:[ OP.(Flow.Output(Port.All , 2000))] 
                 ~data:data ~in_port:in_port () 
         in
-        let bs = OP.Packet_out.packet_out_to_bitstring pkt in 
+        let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out pkt) 
+                   (Lwt_bytes.create 4096) in
           OC.send_of_data controller dpid bs
       ) else (
         let out_port = (Hashtbl.find switch_data.mac_cache ix) in
@@ -350,7 +362,8 @@ let switch_packet_in_cb controller dpid buffer_id m data in_port =
         let pkt = OP.Flow_mod.create m 0_L OP.Flow_mod.ADD 
                     ~buffer_id:(Int32.to_int buffer_id)
                     actions () in 
-        let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+        let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+                   (Lwt_bytes.create 4096) in
           OC.send_of_data controller dpid bs
       )
 
@@ -382,7 +395,7 @@ let packet_in_cb controller dpid evt =
       | _ -> invalid_arg "bogus datapath_join event match!"
   in
   (* Parse Ethernet header *)
-  let m = OP.Match.parse_from_raw_packet in_port data in 
+  let m = OP.Match.raw_packet_to_match in_port data in 
     match (lookup_flow m) with
       | Some (cb) -> cb controller dpid evt
       | None -> switch_packet_in_cb controller dpid  buffer_id m data in_port
@@ -404,33 +417,6 @@ let del_dev dev ip netmask =
   lwt _ = Lwt_unix.system (sp "ip addr del %s/%s dev br0" ip netmask) in
   return ()
 
-let listen ?(port = 6633) () =
-  try_lwt 
-    let sock = Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_STREAM 0 in
-    let _ = Lwt_unix.setsockopt sock Unix.SO_REUSEADDR true in 
-    lwt hostinfo = Lwt_unix.gethostbyname "localhost" in
-    let _ = pp "[openflow] Starting switch...\n%!" in 
-    let server_address = hostinfo.Lwt_unix.h_addr_list.(0) in
-      Lwt_unix.bind sock (Lwt_unix.ADDR_INET (server_address, port)); 
-      Lwt_unix.listen sock 10; 
-      Lwt_unix.setsockopt sock Unix.SO_REUSEADDR true;
-      while_lwt true do 
-        lwt (fd, sockaddr) = Lwt_unix.accept sock in
-          match sockaddr with
-            | ADDR_INET (dst, port) ->
-                let _ = Printf.printf "[openflow] Received a connection %s:%d\n%!"
-                                      (Unix.string_of_inet_addr dst) port  in
-                let ip = 
-                  Nodes.convert_ip_string_to_int
-                           (Unix.string_of_inet_addr dst)
-                in
-                  Lwt_unix.set_blocking fd true;
-                  OC.listen fd (ip, port) init
-            | ADDR_UNIX(_) -> invalid_arg "invalid unix addr"
-
-      done
-    with
-      | e ->
-          return (Printf.eprintf "Unexpected exception : %s\n%!" (Printexc.to_string e))
-
-
+let listen ?(port = 6633) mgr =
+  let _ = pp "[openflow] Starting switch...\n%!" in 
+    OC.listen mgr (None, port) init

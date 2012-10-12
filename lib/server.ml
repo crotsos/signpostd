@@ -140,9 +140,13 @@ module IncomingSignalling = SignalHandler.Make (ServerSignalling)
 let signal_t () =
   IncomingSignalling.thread_server ~address:"0.0.0.0" ~port:(of_int Config.signal_port)
 
-let _ =
+lwt _ =
   let _ = Net_cache.Routing.load_routing_table () in 
-  let _ = Net_cache.Arp_cache.load_arp () in 
-  let daemon_t = join [ dns_t (); signal_t (); Engine.dump_tunnels_t (); 
-                        Sp_controller.listen () ] in
-  Lwt_main.run daemon_t
+  
+  let _ = printf "routing table loaded...\n%!" in 
+  let _ = Net_cache.Arp_cache.load_arp () in
+    Net.Manager.create (
+    fun mgr dev id -> 
+    join [ dns_t (); signal_t (); Engine.dump_tunnels_t (); 
+                        Sp_controller.listen mgr ]
+    )

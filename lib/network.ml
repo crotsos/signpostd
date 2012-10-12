@@ -23,12 +23,14 @@ open Graph
   * with each node being an OrderedNode wrapper, and an edge representing
   * a single tactic. Multiple tactics are represented by multiple edges.
   *)
-module G = Imperative.Digraph.ConcreteLabeled(Node.Ordered)(Node.FlowEntry)
+(* module G = Imperative.Digraph.ConcreteLabeled(Node.Ordered)(Node.FlowEntry)
+ * *)
 
 (**
   * Extend the graph functor with enough to output a DOT graph of the
   * nodes and edges. 
   *)
+(*
 module Display = struct
   include G
   let vertex_name v = "\"" ^ String.escaped (Node.node_to_string (V.label v)) ^ "\""
@@ -41,9 +43,10 @@ module Display = struct
 end
 module DotOutput = Graphviz.Dot(Display)
 
+ *)
 
 (* Retrieve a network node by its name.
  * TODO: folding over the graph can be optimised
  *)
-let find_node ~name g =
-  G.fold_vertex (fun b a -> if b.Node.name = name then Some b else a) g None
+(* let find_node ~name g =
+  G.fold_vertex (fun b a -> if b.Node.name = name then Some b else a) g None *)

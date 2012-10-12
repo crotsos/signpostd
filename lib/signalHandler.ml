@@ -15,25 +15,25 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
 (* Signalling UDP server that runs over Iodine *)
 open Lwt
 open Printf
 open Int64
+open Sp_rpc
 
 type sp_msg = {
   src_ip : int32;
   src_port : int;
-  cmd : Rpc.t option;
+  cmd : t option;
 }
 
 let echo_port = 11000L 
 
 module type HandlerSig = sig
-  val handle_request : Lwt_unix.file_descr -> int32 -> Rpc.command -> 
-    Rpc.arg list -> Sp.request_response Lwt.t
-  val handle_notification : Lwt_unix.file_descr -> int32 -> Rpc.command -> 
-    Rpc.arg list -> unit Lwt.t
+  val handle_request : Lwt_unix.file_descr -> int32 -> command -> 
+    arg list -> Sp.request_response Lwt.t
+  val handle_notification : Lwt_unix.file_descr -> int32 -> command -> 
+    arg list -> unit Lwt.t
 end
 
 module type Functor = sig
@@ -54,7 +54,7 @@ module Make (Handler : HandlerSig) = struct
             Nodes.send_to_server resp 
         end
         | Sp.ResponseError e -> begin
-            let error = Rpc.create_response_error e id in
+            let error = create_response_error e id in
             Nodes.send_to_server error 
         end
         | Sp.NoResponse -> return ()
@@ -107,7 +107,7 @@ module Make (Handler : HandlerSig) = struct
           match (String.length !data) with
             | 0 -> return ()
             | _ -> begin 
-                let (Some(rpc), len) = Rpc.rpc_of_string !data in
+                let (Some(rpc), len) = rpc_of_string !data in
 (*
                   Printf.printf "XXXXXXXXXXXXX processing %s [remainder: %s]\n%!" 
                     (String.sub !data 0 len)

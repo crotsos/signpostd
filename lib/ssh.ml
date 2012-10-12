@@ -24,8 +24,8 @@ open Printf
 let ssh_port = 10000
 let tactic_priority = 5 
 
-module OP = Openflow.Packet
-module OC = Openflow.Controller
+module OP = Openflow.Ofpacket
+module OC = Openflow.Ofcontroller
 
 module Manager = struct
   exception SshError of string
@@ -49,6 +49,7 @@ module Manager = struct
     dev_id : int;
     mutable pid : int;
     conn_tp : conn_type;
+    rem_node: string; 
   }
 
   type conn_db_type = {
@@ -169,7 +170,7 @@ module Manager = struct
    *    connection functions     
    *******************************************************************)
 
-  let server_add_client conn_id domain rem_extern_ip loc_dev_id = 
+  let server_add_client conn_id domain rem_extern_ip loc_dev_id rem_node = 
     Printf.printf "[ssh] Adding new key from domain %s\n%!" domain;
     lwt _ = run_server () in 
     (* Dump keys in authorized_key file *)
@@ -196,7 +197,7 @@ module Manager = struct
                 Hashtbl.add conn_db.conns domain 
                   {key=(List.hd key);ip=rem_extern_ip;
                    port=0; conn_id; dev_id=(loc_dev_id);
-                   pid=0;  conn_tp=SSH_CLIENT; };
+                   pid=0;  conn_tp=SSH_CLIENT; rem_node;};
                 return (update_authorized_keys ())
             | None ->
                 return (Printf.printf 
@@ -205,7 +206,7 @@ module Manager = struct
       in
         return ("OK")
 
-  let client_add_server conn_id node ip port dev_id = 
+  let client_add_server conn_id node ip port dev_id rem_node = 
     Printf.printf "[ssh] Adding know_host domain %s\n%!" node;
     let domain = sprintf "%s.%s" node Config.domain in
     (* Dump keys in authorized_key file *)
@@ -236,7 +237,7 @@ module Manager = struct
 (*                 let domain = sprintf "%s.%s" node Config.domain in *)
                 Hashtbl.add conn_db.conns domain 
                   {key=(List.hd key);port;ip; conn_id;dev_id;pid=0;
-                  conn_tp=SSH_SERVER; };
+                  conn_tp=SSH_SERVER; rem_node;};
                 return (update_known_hosts ())
             | None ->
                 return (Printf.printf "[ssh] no valid dnskey record\n%!")
@@ -270,7 +271,7 @@ module Manager = struct
     
     let flow = OP.Match.create_flow_match flow_wild 
                  ~dl_type:(0x0800) ~nw_dst:remote_sp_ip () in
-    let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in
+    let port = Net_cache.Port_cache.dev_to_port_id dev in
     let actions = [ OP.Flow.Set_nw_src(local_ip);
                     OP.Flow.Set_nw_dst(rem_ip);
                     OP.Flow.Set_dl_dst(
@@ -281,7 +282,8 @@ module Manager = struct
                 ~priority:tactic_priority 
                 ~idle_timeout:0 ~buffer_id:(-1) actions () in 
     lwt _ = OC.send_of_data controller dpid 
-              (OP.Flow_mod.flow_mod_to_bitstring pkt) in
+              (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+                 (Lwt_bytes.create 4096)) in
     
     (* get local mac address *)
     let ip_stream = (Unix.open_process_in
@@ -308,13 +310,14 @@ module Manager = struct
                 ~priority:tactic_priority ~idle_timeout:0  
                 ~buffer_id:(-1) actions () in 
       OC.send_of_data controller dpid 
-        (OP.Flow_mod.flow_mod_to_bitstring pkt)
+        (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+           (Lwt_bytes.create 4096))
 
   let connect kind args =
     try_lwt
       match kind with
           | "server" -> (
-          let rem_node::conn_id::rem_sp_ip::loc_tun_ip::_ = args in 
+          let rem_domain::rem_node::conn_id::rem_sp_ip::loc_tun_ip::_ = args in 
           let conn_id = Int32.of_string conn_id in
           let rem_sp_ip = Uri_IP.string_to_ipv4 rem_sp_ip in
   
@@ -323,25 +326,25 @@ module Manager = struct
           lwt _ = Tap.setup_dev dev_id loc_tun_ip in 
 
           (* Adding remote node public key in authorized keys file *)
-          let q_rem_node = sprintf "%s.%s" rem_node Config.domain in
-          let _ = server_add_client conn_id q_rem_node rem_sp_ip dev_id in
+          let q_rem_domain = sprintf "%s.%s" rem_domain Config.domain in
+          let _ = server_add_client conn_id q_rem_domain rem_sp_ip dev_id rem_node in
   
            return(string_of_int dev_id))
         | "client" ->
-          let server_ip::ssh_port::rem_node::conn_id::loc_tun_ip::
+          let server_ip::ssh_port::rem_domain::rem_node::conn_id::loc_tun_ip::
               rem_dev:: _ = args in
           let conn_id = Int32.of_string conn_id in 
           let ssh_port = int_of_string ssh_port in 
           let rem_dev = int_of_string rem_dev in 
           let loc_dev = Tap.get_new_dev_ip () in 
-          lwt _ = client_add_server conn_id rem_node
+          lwt _ = client_add_server conn_id rem_domain
                     (Uri_IP.string_to_ipv4 server_ip)
-                    ssh_port loc_dev in
+                    ssh_port loc_dev rem_node in
           lwt _ = Tap.setup_dev loc_dev loc_tun_ip in
           lwt pid = client_connect server_ip ssh_port loc_dev rem_dev in
 
           (* update pid from client state *)
-          let domain = sprintf "%s.%s" rem_node Config.domain in
+          let domain = sprintf "%s.%s" rem_domain Config.domain in
           let conn = Hashtbl.find conn_db.conns domain in 
             conn.pid <- pid;
             return (string_of_int loc_dev)
@@ -369,7 +372,7 @@ module Manager = struct
     
     let flow = OP.Match.create_flow_match flow_wild 
                  ~dl_type:(0x0800) ~nw_dst:remote_sp_ip () in
-    let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in
+    let port = Net_cache.Port_cache.dev_to_port_id dev in
     let actions = [ OP.Flow.Set_nw_src(local_ip);
                     OP.Flow.Set_nw_dst(rem_ip);
                     OP.Flow.Set_dl_dst(
@@ -380,7 +383,8 @@ module Manager = struct
                 ~priority:tactic_priority 
                 ~idle_timeout:0 ~buffer_id:(-1) actions () in 
     lwt _ = OC.send_of_data controller dpid 
-              (OP.Flow_mod.flow_mod_to_bitstring pkt) in
+              (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
+              (Lwt_bytes.create 4096) ) in
     
     (* get local mac address *)
     let ip_stream = (Unix.open_process_in
@@ -406,7 +410,8 @@ module Manager = struct
                 ~priority:tactic_priority ~idle_timeout:0  
                 ~buffer_id:(-1) actions () in 
       OC.send_of_data controller dpid 
-        (OP.Flow_mod.flow_mod_to_bitstring pkt)
+        (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
+        (Lwt_bytes.create 4096))
 
   let enable kind args =
     try_lwt
@@ -419,19 +424,28 @@ module Manager = struct
             List.map Uri_IP.string_to_ipv4 
               [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] in 
           let dev_id = ref None in 
-          let _ = 
-            Hashtbl.iter 
-              (fun _ conn -> 
-                 if (conn.conn_id = conn_id) then
-                   dev_id := Some(conn.dev_id)) conn_db.conns
+          let Some(conn) = 
+            Hashtbl.fold 
+              (fun _ conn -> function
+                   | None -> 
+                     (if (conn.conn_id = conn_id) then (
+                       dev_id := Some(conn.dev_id);
+                       Some(conn)
+                     ) else 
+                       None)
+                 | Some(r) -> Some(r)
+                ) conn_db.conns None
           in 
-            match (!dev_id) with
+          lwt _ = match (!dev_id) with
               | None -> 
                   raise (SshError(("openvpn enable invalid conn_id")))
               | Some (dev) ->
-                  (lwt _ = setup_flows (sprintf "tap%d" dev) mac_addr 
-                            local_ip remote_ip local_sp_ip remote_sp_ip in
-                    return ("true"))
+                  setup_flows (sprintf "tap%d" dev) mac_addr 
+                            local_ip remote_ip local_sp_ip remote_sp_ip
+
+          in
+          let _ = Monitor.add_dst (Uri_IP.ipv4_to_string remote_sp_ip) conn.rem_node "ssh" in
+            return ("true")
           end
       with exn ->
         Printf.eprintf "[ssh]Error:%s\n%!" (Printexc.to_string exn);
@@ -458,10 +472,12 @@ module Manager = struct
                 ~priority:tactic_priority 
                 ~idle_timeout:0 ~buffer_id:(-1) [] () in 
     lwt _ = OC.send_of_data controller dpid 
-              (OP.Flow_mod.flow_mod_to_bitstring pkt) in
+              (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
+              (Lwt_bytes.create 4096)) in
+
     
     (* setup incoming flow *)
-    let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in
+    let port = Net_cache.Port_cache.dev_to_port_id dev in
     let flow_wild = OP.Wildcards.({
       in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
       dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
@@ -473,7 +489,8 @@ module Manager = struct
                 ~priority:tactic_priority ~idle_timeout:0  
                 ~buffer_id:(-1) [] () in 
       OC.send_of_data controller dpid 
-        (OP.Flow_mod.flow_mod_to_bitstring pkt)
+        (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
+        (Lwt_bytes.create 4096))
 
   let disable kind args =
     try_lwt
@@ -491,6 +508,7 @@ module Manager = struct
                  if (conn.conn_id = conn_id) then
                    dev_id := Some(conn.dev_id)) conn_db.conns
           in 
+          let _ = Monitor.del_dst (Uri_IP.ipv4_to_string remote_sp_ip) "ssh" in
             match (!dev_id) with
               | None -> 
                   raise (SshError(("openvpn disable invalid conn_id")))
@@ -511,7 +529,7 @@ module Manager = struct
     try_lwt
       match kind with
         | "teardown" -> begin
-            let conn_id::local_tun_ip::local_sp_ip::_ = args in
+            let conn_id::local_tun_ip::_ = args in
             let conn_id = Int32.of_string conn_id in
             let domain = ref None in
             let _ = 

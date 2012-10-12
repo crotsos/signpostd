@@ -20,7 +20,7 @@ open Printf
 open Int64
 open Unix
 open Re_str
-
+open Sp_rpc
 
 (* ---------------------------------------------------------------------- *)
 
@@ -166,7 +166,7 @@ let send_tcp_pkt text fd =
   Lwt_unix.send fd text 0 (String.length text) []
 
 let send_to_addr fd rpc = 
-  let buf = Rpc.rpc_to_string rpc in
+  let buf = rpc_to_string rpc in
   lwt len' = send_tcp_pkt buf fd in
    return (eprintf "sent [%d]: %s\n%!" len' buf) 
 (*     return () *)
@@ -199,7 +199,7 @@ let send_blocking name rpc =
   | Lwt.Fail(Lwt.Canceled) -> begin
       (* the RPC timed out, so we return None, 
        * to the caller *)
-      raise Rpc.Timeout
+      raise Timeout
   end
   | Lwt.Fail error -> Lwt.fail error
   | Lwt.Return result -> begin
