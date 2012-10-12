@@ -488,7 +488,8 @@ ocaml_get_arp_table(value unit) {
     entry = caml_alloc(2,0);
     // Store_field(entry, 0, Val_int(ntohl(dstin->sin_addr.s_addr)));
     Store_field(entry, 1, Val_int(ntohl(sin->sin_addr.s_addr)));
-    printf("mac: %s, ip %x\n", ether_ntoa(LLADDR(sdl)), sin->sin_addr.s_addr);
+    printf("mac: %s, ip %x\n", ether_ntoa(LLADDR(sdl)), 
+        sin->sin_addr.s_addr);
 
     // store in list
     tmp =  caml_alloc(2, 0);
