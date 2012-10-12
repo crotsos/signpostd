@@ -580,7 +580,8 @@ module Manager = struct
               | None -> raise (OpenVpnError("teardown invalid conn_id"))
               | Some (dev) ->
                   (* disable required openflow flows *)
-                lwt _ = unset_flows (string_of_int dev) local_tun_ip 
+                let net_dev = Printf.sprintf "tap%d" dev in
+                lwt _ = unset_flows net_dev local_tun_ip 
                           remote_sp_ip in
                     return ("true")
       | _ -> (

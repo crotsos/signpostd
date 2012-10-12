@@ -144,6 +144,32 @@ let preinstall_flows_eth0 controller dpid port_id =
               [OP.Flow.Output(port_id, 2000)] () in 
   let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
   lwt _ = OC.send_of_data controller dpid bs in
+
+  (* setup arp handling for 10.255.0.0/24 *)
+    let arp_wild = OP.Wildcards.({
+      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
+      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
+      nw_dst=(char_of_int 7); nw_src=(char_of_int 7);
+      dl_vlan_pcp=true; nw_tos=true;}) in
+    let ip = Uri_IP.string_to_ipv4  "10.255.0.128" in
+    let flow = OP.Match.create_flow_match arp_wild
+                 ~in_port:(OP.Port.int_of_port OP.Port.Local) ~dl_type:0x0806
+                 ~nw_src:ip ~nw_dst:ip () in
+    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
+                ~priority:2 ~idle_timeout:0  ~hard_timeout:0
+                ~buffer_id:(-1) [] () in 
+    let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+    lwt _ = OC.send_of_data controller dpid bs in
+
+    (* ARP handling *)
+    let flow = OP.Match.create_flow_match arp_wild
+                 ~in_port:(port) ~dl_type:0x0806
+                 ~nw_src:ip ~nw_dst:ip () in
+    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
+                ~priority:2 ~idle_timeout:0  ~hard_timeout:0
+                ~buffer_id:(-1) [] () in 
+    let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+    lwt _ = OC.send_of_data controller dpid bs in
     return ()
 
 
