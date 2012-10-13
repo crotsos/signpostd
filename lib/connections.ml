@@ -144,6 +144,20 @@ let dump_tunnels () =
                                ("server", Json.String s);
                                ("type", Json.String tactic);
                               ]]))
+                         | ("slave", _) -> 
+                          (r @ 
+                            ([Json.Object 
+                              [("client", Json.String s); 
+                               ("server", Json.String cl);
+                               ("type", Json.String tactic);
+                              ]]))
+                         | (_, "slave") -> 
+                          (r @ 
+                            ([Json.Object 
+                              [("client", Json.String cl); 
+                               ("server", Json.String s);
+                               ("type", Json.String tactic);
+                              ]]))
                          | (_, _) -> 
                           (r @ 
                             ([Json.Object 
