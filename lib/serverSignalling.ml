@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
+open Sp_rpc
 open Lwt
 open Printf
 open Int64
@@ -59,7 +59,7 @@ let handle_hello fd src_ip args =
   Nodes.set_local_ips node local_ips;
   Nodes.set_node_mac node mac;
 (*   eprintf "About to check for publicly accesible ips\n%!"; *)
-  let rpc = Rpc.create_notification "setup_sp_ip" 
+  let rpc = create_notification "setup_sp_ip" 
               [(Uri_IP.ipv4_to_string (Nodes.get_sp_ip node))] in 
   lwt _ = Nodes.send node rpc in 
   let rpc = create_request "test_nat" [Config.external_ip; (Int64.to_string SignalHandler.echo_port)] in

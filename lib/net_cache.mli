@@ -18,7 +18,6 @@ module Routing : sig
   type t
 
   val load_routing_table: unit -> unit Lwt.t
-  val print_routing_table: unit -> unit
   val get_next_hop: int32 -> (int32 * int32 * string)
   val get_next_hop_local_ip: int32 -> int32 
   val add_next_hop: int32 -> int32 -> int32 -> string -> int32 -> unit
@@ -56,7 +55,7 @@ end
 module Port_cache : sig
   val add_dev : string -> int -> unit
   val del_dev : string -> unit
-  val dev_to_port_id : string -> int option
+  val dev_to_port_id : string -> int 
   val port_id_to_dev : int -> string option
 
   val add_mac: string -> int -> unit

@@ -27,10 +27,10 @@ type ty =
   | Ping (* icmp "existence test" *)
 
 
-module type TACTIC = sig
+(*module type TACTIC = sig
   type state (* Tactic state *)
   type t = state * Tactic.mode
   val off: state -> unit
   val on: state -> unit
   val to_string: state -> string
-end
+end*)

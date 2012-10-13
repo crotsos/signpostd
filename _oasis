@@ -1,4 +1,4 @@
-OASISFormat: 0.2
+OASISFormat: 0.3
 Name:        frost
 Version:     0.1-dev
 Synopsis:    FRP tactics engine
@@ -8,27 +8,31 @@ Plugins:     META (0.2)
 BuildTools:  ocamlbuild
 
 Library signpost
-  Path:               lib
-#  Pack:               true
-  Findlibname:        signpost
-  Modules:            Rpc
-  BuildDepends:       lwt.syntax, lwt, re, lwt.unix, uri, re.str, openflow, crypto_keys, bitstring
+  Path: lib
+  Pack: true
+  BuildTools: ocamlbuild
+  CompiledObject: native
+  Modules: Sp_rpc,ClientSignalling,Config,Connections,Direct,DirectConnection,Engine,Json,Monitor,Natpunch,NatpunchConnection,Net_cache,Network,Nodes,Openvpn,OpenvpnConnection,Privoxy,PrivoxyConnection,RemoteControl,ServerSignalling,SignalHandler,Sp,Sp_controller,Ssh,SshConnection,Tactic,Tactic_impl,Tap,Pktgen,Tor,TorConnection
+  CSources:   tap_routing.c
+  CCOpt:      -O2 -I/usr/include/libnl3
+  CCLib:      -lc -lnl-3 -lnl-route-3
+  BuildDepends: lwt.syntax,lwt,re,lwt.unix,uri,re.str,openflow,crypto_keys,cstruct,mirage,mirage-net
 
 Executable server
   Path:               lib
   MainIs:             server.ml
-  Custom:             false
-  CompiledObject:     best
+  Custom:             true
+  CompiledObject:     native
   Install:            false
-  BuildDepends:       signpost, ocamlgraph, dns, dns.server
+  BuildDepends:       signpost, ocamlgraph, dns, dns.lwt, re.str, re, mirage, mirage-net, lwt, openflow
 
 Executable client
   Path:               lib
   MainIs:             client.ml
-  Custom:             false
-  CompiledObject:     best
+  Custom:             true
+  CompiledObject:     native
   Install:            false
-  BuildDepends:       signpost, dns, dns.server
+  BuildDepends:       signpost, dns, dns.lwt, mirage, mirage-net
 
 Executable send_cmd
   Path:               lib
@@ -38,3 +42,10 @@ Executable send_cmd
   Install:            false
   BuildDepends:       signpost
 
+#Executable connections_test
+#  Path:               lib
+#  MainIs:             conn_test.ml
+#  Custom:             false
+#  CompiledObject:     best
+#  Install:            false
+#  BuildDepends:       signpost 

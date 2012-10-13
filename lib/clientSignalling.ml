@@ -18,7 +18,7 @@ open Lwt_unix
 open Lwt
 open Printf
 open Int64
-open Rpc
+open Sp_rpc
 open Uri_IP
 
 exception Tactic_error of string

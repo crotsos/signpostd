@@ -19,6 +19,7 @@ open Lwt
 open Printf
 open Int64
 open Re_str
+open Sp_rpc
 
 module DP = Dns.Packet
 module IncomingSignalling = SignalHandler.Make (ClientSignalling)
@@ -50,7 +51,7 @@ let nxdomain =
 
 let register_mobile_host name = 
   let args = [!node_name; name] in
-  let rpc = Rpc.create_notification "register_mobile_host" args in
+  let rpc = create_notification "register_mobile_host" args in
       Nodes.send_to_server rpc
 
 let bind_ns_fd () =
@@ -90,8 +91,9 @@ let forward_dns_query_to_ns packet _ =
 let sp_gethostbyname name =
   DP.(
     let domain = Dns.Name.string_to_domain_name name in
-    lwt r = Dns_resolver.resolve Config.external_ip Config.dns_port
-              Q_IN Q_A domain in
+    lwt t = Dns_resolver.create 
+              ~config:(`Static([Config.external_ip,Config.dns_port], [""]) ) () in 
+    lwt r = Dns_resolver.resolve t Q_IN Q_A domain in
        return (r.answers ||> (fun x -> match x.rdata with
                                 | DP.A ip -> Some ip
                                 | _ -> None
@@ -169,7 +171,7 @@ let get_hello_rpc ips =
   let _::mac::_ = test in
 (*   let mac = Net_cache.Arp_cache.mac_of_string mac in  *)
   let args = [!node_name; !node_ip; string_port; mac;] @ ips in
-    Rpc.create_notification "hello" args
+    create_notification "hello" args
 
 let update_server_if_state_has_changed () =
   let ips = Nodes.discover_local_ips () in
@@ -196,19 +198,19 @@ let client_t () =
 let signal_t  ~port =
   IncomingSignalling.thread_client ~address:Config.external_ip ~port
 
-let _ =
+lwt _ =
   (try node_name := Sys.argv.(1) with _ -> usage ());
 (*    Lwt_engine.set (new Lwt_engine.select); *)
   Nodes.set_local_name !node_name;
   (try node_ip := Sys.argv.(2) with _ -> usage ());
   (try node_port := (of_int (int_of_string Sys.argv.(3))) with _ -> usage ());
-  printf "Hello\n%!";
 (*   lwt _ = waiter_connect in  *)
-  let daemon_t = 
+    Net.Manager.create (
+      fun mgr _ _ -> 
         join [ 
          signal_t ~port:(Int64.of_int Config.signal_port) (client_t);
          Monitor.monitor_t ();
          dns_t ();
-         Sp_controller.listen (); 
-        ] in
-  Lwt_main.run daemon_t
+         Sp_controller.listen mgr; 
+        ]
+    )

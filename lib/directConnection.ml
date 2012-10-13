@@ -14,9 +14,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
 open Lwt
 open Printf
+open Sp_rpc
 
 exception Direct_error
 
@@ -85,8 +85,8 @@ let test a b =
   (* Both servers must stop the same time *)
   lwt _ = Lwt_list.iter_p 
             (fun n ->
-               let rpc = (Rpc.create_tactic_request "direct" 
-                            Rpc.TEST "server_start" 
+               let rpc = (create_tactic_request "direct" 
+                            TEST "server_start" 
                             [(string_of_int direct_port)]) in
                lwt _ = (Nodes.send_blocking n rpc) in 
                   return()
@@ -99,15 +99,15 @@ let test a b =
                   ((Nodes.get_local_ips a) @(Nodes.get_public_ips b)) in  
 
       lwt ret = 
-        Nodes.send_blocking b (Rpc.create_tactic_request "direct" 
-        Rpc.TEST "client" ([(string_of_int direct_port)] @ ips)) in   
+        Nodes.send_blocking b (create_tactic_request "direct" 
+        TEST "client" ([(string_of_int direct_port)] @ ips)) in   
   
-      lwt _ = Nodes.send_blocking a (Rpc.create_tactic_request "direct" 
-        Rpc.TEST "server_stop" [(string_of_int direct_port)]) in 
+      lwt _ = Nodes.send_blocking a (create_tactic_request "direct" 
+        TEST "server_stop" [(string_of_int direct_port)]) in 
       return (Some(ret))
     with exn ->
-      lwt _ = Nodes.send_blocking a (Rpc.create_tactic_request "direct" 
-        Rpc.TEST "server_stop" [(string_of_int direct_port)]) in
+      lwt _ = Nodes.send_blocking a (create_tactic_request "direct" 
+        TEST "server_stop" [(string_of_int direct_port)]) in
         eprintf "[direct] Pairwise test %s->%s failed:%s\n%!" 
                 a b (Printexc.to_string exn);
         return None
@@ -150,7 +150,7 @@ let enable_direct conn a b =
     let [q_a; q_b] = List.map (
       fun n -> Printf.sprintf "%s.d%d" n Config.signpost_number) [a; b] in 
     let rpc = 
-      (Rpc.create_tactic_request "direct" Rpc.ENABLE "enable" 
+      (create_tactic_request "direct" ENABLE "enable" 
          [(Nodes.get_node_mac b); 
           (Uri_IP.ipv4_to_string (get_external_ip conn q_a));
           (Uri_IP.ipv4_to_string (get_external_ip conn q_b));
@@ -183,7 +183,7 @@ let disable_direct conn a b =
   try_lwt
     let q_a = Printf.sprintf "%s.d%d" a Config.signpost_number in 
     let rpc_a = 
-      (Rpc.create_tactic_request "ssh" Rpc.DISABLE "disable" 
+      (create_tactic_request "ssh" DISABLE "disable" 
          [(Uri_IP.ipv4_to_string (get_external_ip conn q_a));
           (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b))]) in
     lwt _ = Nodes.send_blocking a rpc_a in

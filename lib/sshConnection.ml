@@ -19,9 +19,10 @@ open Lwt
 open Lwt_unix
 open Printf
 open Int64
+open Sp_rpc
 
-module OP = Openflow.Packet
-module OC = Openflow.Controller
+module OP = Openflow.Ofpacket
+module OC = Openflow.Ofcontroller
 
 exception Ssh_error
 
@@ -129,8 +130,8 @@ let test a b =
   let pairwise_connection_test a b direction =
     try_lwt 
       Printf.printf "[ssh] Trying to start ssh service...\n%!";
-      let rpc = (Rpc.create_tactic_request "ssh" 
-        Rpc.TEST "server_start" [(string_of_int ssh_port)]) in
+      let rpc = (create_tactic_request "ssh" 
+        TEST "server_start" [(string_of_int ssh_port)]) in
       lwt _ = (Nodes.send_blocking a rpc) in 
   
       (* Avoid testing my self for open connections *)
@@ -139,8 +140,8 @@ let test a b =
                                not (List.mem a not_ips) ) 
                   ((Nodes.get_local_ips a) @ (Nodes.get_public_ips b)) in  
       
-      lwt res = Nodes.send_blocking b (Rpc.create_tactic_request "ssh" 
-        Rpc.TEST "client" ([(string_of_int ssh_port)] @ ips))  in
+      lwt res = Nodes.send_blocking b (create_tactic_request "ssh" 
+        TEST "client" ([(string_of_int ssh_port)] @ ips))  in
         dir := direction; succ := true; ip := res;
         return ()
     with exn ->
@@ -198,8 +199,8 @@ let start_ssh_server conn loc_node rem_node =
       Uri_IP.ipv4_to_string 
         (get_tactic_ip conn (sprintf "%s.d%d" loc_node Config.signpost_number)) in     
     lwt res = Nodes.send_blocking loc_node  
-                (Rpc.create_tactic_request "ssh" Rpc.CONNECT "server" 
-                   [q_rem_node; (Int32.to_string conn.conn_id ); 
+                (create_tactic_request "ssh" CONNECT "server" 
+                   [q_rem_node; rem_node; (Int32.to_string conn.conn_id ); 
                     rem_sp_ip;tunnel_ip]) in 
       return (res)
   with exn -> 
@@ -221,8 +222,8 @@ let start_ssh_client conn loc_node rem_node rem_dev_id =
     let loc_tun_ip = 
       Uri_IP.ipv4_to_string 
         (get_tactic_ip conn (sprintf "%s.d%d" loc_node Config.signpost_number)) in     
-    let rpc = (Rpc.create_tactic_request "ssh" Rpc.CONNECT "client" 
-                 [server_ip; (string_of_int ssh_port); q_rem_node; 
+    let rpc = (create_tactic_request "ssh" CONNECT "client" 
+                 [server_ip; (string_of_int ssh_port); q_rem_node; rem_node; 
                   (Int32.to_string conn.conn_id); loc_tun_ip; 
                   rem_dev_id;]) in
     lwt res = Nodes.send_blocking loc_node rpc in 
@@ -258,7 +259,7 @@ let start_local_server conn a b =
     let _ = Ssh.Manager.server_add_client conn.conn_id host 0l dev_id in
       dev_id
   in
-  let connect_client loc_node rem_dev =
+  let connect_client loc_node rem_dev rem_node =
     let domain = (sprintf "d%d" Config.signpost_number) in 
     let q_loc_node = sprintf "%s.d%d" loc_node Config.signpost_number in
 (*     let dev = Printf.sprintf "tap%d" local_dev in   *)
@@ -268,17 +269,17 @@ let start_local_server conn a b =
     
     let loc_tun_ip = 
       Uri_IP.ipv4_to_string (get_tactic_ip conn q_loc_node) in     
-    let rpc = (Rpc.create_tactic_request "ssh" 
-                 Rpc.CONNECT "client" 
+    let rpc = (create_tactic_request "ssh" 
+                 CONNECT "client" 
                  [Config.external_ip; (string_of_int ssh_port);
-                  domain; (Int32.to_string conn.conn_id); 
+                  domain; rem_node; (Int32.to_string conn.conn_id); 
                   loc_tun_ip; (string_of_int rem_dev);]) in
     lwt _ = (Nodes.send_blocking loc_node rpc) in 
       return ()
   in
   try_lwt
     let [a_dev; b_dev] = List.map create_devices [a;b] in
-    lwt _ = (connect_client a a_dev) <&> (connect_client b b_dev) in
+    lwt _ = (connect_client a a_dev b) <&> (connect_client b b_dev a) in
 (*     lwt _ = setup_cloud_flows a_dev b_dev in  *)
       return ("true")
   with ex ->
@@ -316,7 +317,7 @@ let setup_cloud_flows a_dev b_dev a_tun_ip b_tun_ip =
                     switch_data.Sp_controller.of_ctrl) in 
   let dpid = 
     (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
-  let [Some(a_port); Some(b_port)] = 
+  let [a_port; b_port] = 
     List.map ( 
       fun dev -> Net_cache.Port_cache.dev_to_port_id (Printf.sprintf "tap%d" dev)) 
       [a_dev; b_dev] in
@@ -334,7 +335,8 @@ let setup_cloud_flows a_dev b_dev a_tun_ip b_tun_ip =
   let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
               ~idle_timeout:0 ~buffer_id:(-1) actions () in 
   lwt _ = OC.send_of_data controller dpid 
-            (OP.Flow_mod.flow_mod_to_bitstring pkt) in
+            (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+            (Lwt_bytes.create 4096) )in
   
   let flow = OP.Match.create_flow_match flow_wild 
                ~in_port:b_port ~dl_type:(0x0800) 
@@ -344,7 +346,8 @@ let setup_cloud_flows a_dev b_dev a_tun_ip b_tun_ip =
   let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
               ~idle_timeout:0 ~buffer_id:(-1) actions () in 
     OC.send_of_data controller dpid 
-      (OP.Flow_mod.flow_mod_to_bitstring pkt)
+      (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+         (Lwt_bytes.create 4096) )
 
 let enable_ssh conn a b = 
   (* Init server on b *)
@@ -352,7 +355,7 @@ let enable_ssh conn a b =
     let [q_a; q_b] = List.map (
       fun n -> Printf.sprintf "%s.d%d" n Config.signpost_number) [a; b] in 
     let rpc_a = 
-      (Rpc.create_tactic_request "ssh" Rpc.ENABLE "enable" 
+      (create_tactic_request "ssh" ENABLE "enable" 
          [(Int32.to_string conn.conn_id); (Nodes.get_node_mac b); 
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_a));
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_b));
@@ -400,7 +403,7 @@ let disable_ssh conn a b =
   try_lwt
     let q_a = Printf.sprintf "%s.d%d" a Config.signpost_number in 
     let rpc_a = 
-      (Rpc.create_tactic_request "ssh" Rpc.DISABLE "disable" 
+      (create_tactic_request "ssh" DISABLE "disable" 
          [(Int32.to_string conn.conn_id); 
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_a));
           (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b))]) in
@@ -431,7 +434,8 @@ let disable_cloud_ssh conn a b =
         let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.DELETE 
                     ~idle_timeout:0 ~buffer_id:(-1) [] () in 
           OC.send_of_data controller dpid 
-            (OP.Flow_mod.flow_mod_to_bitstring pkt)
+            (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+               (Lwt_bytes.create 4096))
       ) else (
         return ()
       )

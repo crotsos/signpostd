@@ -1,7 +1,7 @@
 .PHONY: all clean install build
 all: build test doc
 
-export OCAMLRUNPARAM=b
+# export OCAMLRUNPARAM=b
 
 setup.bin: setup.ml
 	ocamlopt.opt -o $@ $< || ocamlopt -o $@ $< || ocamlc -o $@ $<
@@ -11,8 +11,9 @@ setup.data: setup.bin
 	./setup.bin -configure
 
 build: setup.data setup.bin
-	ocamlbuild lib/server.byte
-	ocamlbuild lib/client.byte
+	./setup.bin -build
+#	ocamlbuild lib/server.byte
+#	ocamlbuild lib/client.byte
 
 doc: setup.data setup.bin
 	./setup.bin -doc

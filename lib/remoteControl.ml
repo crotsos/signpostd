@@ -14,44 +14,37 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-
+open Sp_rpc
 open Lwt
 open Printf
 open Int64
 open Re_str
 
-module IncomingSignalling = SignalHandler.Make (ClientSignalling)
-let usage () = 
-  Printf.printf "Usage: %s tactic_name\n%!" Sys.argv.(0)
-
-let create_fd address port =
-  let fd = Lwt_unix.(socket PF_INET SOCK_STREAM 0) in
-    return fd
+open Lwt_unix
 
 lwt _ =
-  let server_ip = Config.external_ip in 
-  let remote_port = Config.signal_port in 
-  let tactic = 
-    try 
-      Sys.argv.(1) 
-    with _ -> 
-      usage ();
-      raise Exit
-  in
-              
-  try_lwt 
-    lwt fd = create_fd server_ip remote_port in
-    lwt src = try_lwt
-      let hent = Unix.gethostbyname server_ip in
-      return (Unix.ADDR_INET (hent.Unix.h_addr_list.(0), remote_port))
-    with _ ->
-      raise_lwt (Failure ("cannot resolve " ^ server_ip ))
+   let server_ip = Config.external_ip in 
+   let remote_port = Config.signal_port in 
+    let command = 
+      try 
+         Sys.argv.(1)
+      with _ -> 
+        failwith (Printf.sprintf "Invalid arg\n%!")
     in
-    lwt _ = Lwt_unix.connect fd src in
-    let rpc = Rpc.create_notification "exec_tactic" [tactic;"home";"slave"] in
-    let buf = Rpc.rpc_to_string rpc in
-    lwt _ = Lwt_unix.send fd buf 0 (String.length buf) [] in
-    let _ = Lwt_unix.shutdown fd Lwt_unix.SHUTDOWN_ALL in
-      return ()
-  with exn ->
-    return (printf "ERROR: %s\n%!" (Printexc.to_string exn))
+      try_lwt 
+        let client_sock = socket PF_INET SOCK_STREAM 0 in
+        let hentry = Unix.inet_addr_of_string server_ip in
+        lwt _ = 
+           (Lwt_unix.sleep 4.0 >|= (fun _ -> failwith("Can't connect")) ) <?> 
+                Lwt_unix.connect client_sock(ADDR_INET(hentry, remote_port)) in 
+        let ADDR_INET(loc_ip,loc_port) = Lwt_unix.getsockname client_sock in
+
+        let rpc = create_notification "exec_tactic" [command; "home"; "slave";] in
+        let data = rpc_to_string rpc in  
+          
+        lwt _ = Lwt_unix.send client_sock data 0 (String.length data) [] in 
+            Lwt_unix.shutdown client_sock SHUTDOWN_ALL; 
+            return ()
+      with exn ->
+        eprintf "[signal] tcp client error:%s\n%!" (Printexc.to_string exn);
+        return ()
