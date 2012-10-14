@@ -47,4 +47,4 @@ ovs-ofctl del-flows br0
 ovs-ofctl add-flow br0 hard_timeout=7200,in_port=$port_id,priority=1,action=local
 ovs-ofctl add-flow br0 hard_timeout=7200,in_port=LOCAL,priority=1,action=output:$port_id
 
-../_build/lib/server.byte
+../server.native
