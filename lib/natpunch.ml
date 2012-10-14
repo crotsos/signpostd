@@ -490,7 +490,7 @@ module Manager = struct
            * send a syn packet also out to the internet in order to open state
            * in the nat
            * *)
-          let pkt = Tcp.gen_tcp_syn isn local_mac gw_mac local_ip dst_ip
+          let pkt = Pktgen.gen_tcp_syn isn local_mac gw_mac local_ip dst_ip
                       dst_port src_port 0x3000 in 
           let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out
                       (OP.Packet_out.create ~buffer_id:(-1l)
