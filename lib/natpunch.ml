@@ -168,6 +168,7 @@ module Manager = struct
         match (flags.rst, flags.syn, flags.ack) with 
           (* Not sure if this is required *)
           | (true, _, _) -> return ()
+
           (* On the client side filter syn+ack packet to avoid the NAT
           * terminating my state *)
           | (false, true, true) -> begin
@@ -182,10 +183,8 @@ module Manager = struct
               let Some(gw_mac) = (Net_cache.Arp_cache.get_next_hop_mac node.public_ip) in 
 
               let actions = [
-                OP.Flow.Set_nw_src(local_ip);
-                OP.Flow.Set_dl_dst(gw_mac);
-                OP.Flow.Set_nw_dst(node.public_ip);
-                OP.Flow.Output(port, 2000);] in
+                OP.Flow.Set_nw_src(local_ip); OP.Flow.Set_dl_dst(gw_mac);
+                OP.Flow.Set_nw_dst(node.public_ip); OP.Flow.Output(port, 2000);] in
               let wild = OP.Wildcards.({in_port=false; dl_vlan=true; dl_src=true; 
                       dl_dst=true; dl_type=false; nw_proto=false; 
                       tp_src=false; tp_dst=false; nw_src=(char_of_int 0); 
@@ -491,15 +490,15 @@ module Manager = struct
            * send a syn packet also out to the internet in order to open state
            * in the nat
            * *)
-          let pkt = gen_tcp_syn isn local_mac gw_mac local_ip (Uri_IP.string_to_ipv4 "192.168.1.106")
+(*          let pkt = gen_tcp_syn isn local_mac gw_mac local_ip (Uri_IP.string_to_ipv4 "192.168.1.106")
                       dst_port src_port 0x3000 in 
           let bs = (OP.Packet_out.packet_out_to_bitstring 
                       (OP.Packet_out.create ~buffer_id:(-1l)
                       ~actions:[OP.(Flow.Output(port , 2000))]
                       ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
-          lwt _ = OC.send_of_data controller dpid bs in
+          lwt _ = OC.send_of_data controller dpid bs in *)
 
-          let pkt = gen_tcp_syn isn local_mac gw_mac local_ip dst_ip
+          let pkt = Pktgen.gen_tcp_syn isn local_mac gw_mac local_ip dst_ip
                       dst_port src_port 0x3000 in 
           let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out
                       (OP.Packet_out.create ~buffer_id:(-1l)

@@ -321,7 +321,7 @@ let disable_openvpn conn a b =
     lwt _ = Nodes.send_blocking a rpc_a in
       return ()
   with ex -> 
-    Printf.printf "[ssh]Failed ssh enabling :%s\n%!"
+    Printf.printf "[openvpn]Failed openvpn enabling :%s\n%!"
       (Printexc.to_string ex);
     raise Openvpn_error
 
