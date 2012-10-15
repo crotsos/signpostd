@@ -19,7 +19,31 @@ open Printf
 
 module OP = Openflow.Ofpacket
 
-external get_local_ips: unit ->  (string * string * int) list = "ocaml_get_local_ip"
+external get_local_ips: unit ->  (string * string * int) list = 
+  "ocaml_get_local_ip"
+external get_routing_table: unit -> 
+  (int * int * int * int * string) list = 
+    "ocaml_get_routing_table"
+
+let string_of_mac mac = 
+  let ret = ref "" in 
+  let _ = 
+    String.iter 
+      (fun a -> 
+         ret := sprintf "%s%02x:" !ret (int_of_char a)) mac
+  in
+    String.sub (!ret) 0 17
+
+let mac_of_string mac = 
+  let entries = Re_str.split (Re_str.regexp ":") mac in 
+  let rec parse_mac = function
+    | [] -> ""
+    | [b] -> (String.make 1 (char_of_int (int_of_string ("0x"^b))))
+    | b :: r -> 
+        ((String.make 1 (char_of_int (int_of_string ("0x"^b)))) ^ 
+         (parse_mac r))
+  in 
+    parse_mac entries
 
 module Routing = struct
   type t = {
@@ -33,9 +57,6 @@ module Routing = struct
 
   type routing_tbl_typ = { mutable tbl : t list; }
   let routing_tbl = {tbl=[];}
-
-  external get_routing_table: unit -> (int * int * int * int * string) list = 
-    "ocaml_get_routing_table"
 
   let string_rev str =
     let len = String.length str in
@@ -54,15 +75,6 @@ module Routing = struct
   let match_ip_fib fib ip = 
     (Int32.logand fib.ip fib.mask) = 
       (Int32.logand ip fib.mask)
-  let string_of_mac mac =
-    let ret = ref "" in 
-    let _ = 
-      String.iter 
-        (fun a -> 
-           ret := Printf.sprintf "%s%02x:" !ret (int_of_char a)) 
-        mac in
-    String.sub (!ret) 0 ((String.length !ret) - 1)
-
  
   let load_routing_table () =
     let init_fib = 
@@ -72,9 +84,7 @@ module Routing = struct
             gw=(of_int gw); local_ip=(of_int local_ip); 
             dev_id;})
         )  (get_routing_table ()) in
-    let local_ips = 
-      List.map (fun (dev, mac, ip) ->  Int32.of_int ip)
-        (get_local_ips ()) in
+    let local_ips = Nodes.discover_local_ips () in
     let filter_local_net_fib ips fib r =
       try 
         match (fib.mask) with
@@ -143,15 +153,6 @@ module Port_cache = struct
   (* Maybe I need here an additional field to define a datapath id*)
   let mac_cache = Hashtbl.create 64
 
-  let string_of_mac mac =
-    let ret = ref "" in 
-    let _ = 
-      String.iter 
-        (fun a -> 
-           ret := Printf.sprintf "%s%02x:" !ret (int_of_char a)) 
-        mac in
-    String.sub (!ret) 0 ((String.length !ret) - 1)
-
   let add_dev dev port_id =
     let dev = Re_str.global_replace (Re_str.regexp "\x00") "" dev in 
       Hashtbl.replace dev_cache dev port_id
@@ -184,51 +185,39 @@ module Port_cache = struct
 end
 
 module Arp_cache = struct 
-  external get_arp_table: unit ->  (string * int) list = "ocaml_get_arp_table"
+  external get_arp_table: unit ->  (string * int) list = 
+    "ocaml_get_arp_table"
   
   let cache = Hashtbl.create 64
 
   let add_mapping mac ip = 
     (* Check if ip addr is local *)
-    let (_,gw,_) = Routing.get_next_hop ip in
-     match gw with 
-        | 0l -> Hashtbl.replace cache ip mac
-        | _ -> ()
+    try 
+      let (_,gw,_) = Routing.get_next_hop ip in
+        match gw with 
+          | 0l -> Hashtbl.replace cache ip mac
+          | _ -> ()
+    with Not_found -> ()
 
   let del_mapping ip = 
     (* Check if ip addr is local *)
-    let (_,gw,_) = Routing.get_next_hop ip in 
-      match gw with 
-        | 0l ->  Hashtbl.remove cache ip
-        | _ -> ()
-  let string_of_mac mac = 
-    let ret = ref "" in 
-    let _ = 
-      String.iter 
-        (fun a -> 
-           ret := sprintf "%s%02x:" !ret (int_of_char a)) mac
-    in
-      String.sub (!ret) 0 17
+    try 
+      let (_,gw,_) = Routing.get_next_hop ip in 
+        match gw with 
+          | 0l ->  Hashtbl.remove cache ip
+          | _ -> ()
+    with Not_found -> ()
 
-  let mac_of_string mac = 
-    let entries = Re_str.split (Re_str.regexp ":") mac in 
-      let rec parse_mac = function
-        | [] -> ""
-        | [b] -> (String.make 1 (char_of_int (int_of_string ("0x"^b))))
-        | b :: r -> ((String.make 1 (char_of_int (int_of_string ("0x"^b)))) ^ 
-                    (parse_mac r))
-      in 
-        parse_mac entries
 
   let load_arp () =
-     (* reading ip dev mappings *)
-    let local_ips = get_local_ips () in 
-    let _ = List.iter 
-              (fun (dev, mac, ip) -> 
-                 let _ = add_mapping mac (Int32.of_int ip) in 
-                   Port_cache.add_mac mac 
-                     (OP.Port.int_of_port OP.Port.Local)
-               ) local_ips in 
+    (* reading ip dev mappings *)
+    let _ = 
+      List.iter 
+        (fun (dev, mac, ip) -> 
+           let _ = add_mapping mac (Int32.of_int ip) in 
+             Port_cache.add_mac mac 
+               (OP.Port.int_of_port OP.Port.Local)
+        ) (get_local_ips ()) in 
     (* reading arp cache *)
     let arps = get_arp_table () in 
     let _ = List.iter 

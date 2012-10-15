@@ -115,6 +115,11 @@ let weight a b =
 (*
  * testing code
  * *)
+
+let calculate_tactic_ip base conn =
+  Int32.add base (Int32.shift_left conn.conn_id 8)
+
+
 let test a b =
   (* Trying to see if connectivity is possible *)
   let (a, b) = gen_key a b in
@@ -135,13 +140,17 @@ let test a b =
       lwt _ = (Nodes.send_blocking a rpc) in 
   
       (* Avoid testing my self for open connections *)
-      let not_ips =  (Nodes.get_local_ips b) in
-      let ips = List.filter (fun a -> 
-                               not (List.mem a not_ips) ) 
-                  ((Nodes.get_local_ips a) @ (Nodes.get_public_ips b)) in  
+      let not_ips =  (Nodes.get_node_local_ips b) in
+      let ips = 
+        List.filter (
+          fun a -> not (List.mem a not_ips) ) 
+          ((Nodes.get_node_local_ips a) @ 
+           (Nodes.get_node_public_ips b)) in  
       
-      lwt res = Nodes.send_blocking b (create_tactic_request "ssh" 
-        TEST "client" ([(string_of_int ssh_port)] @ ips))  in
+      lwt res = Nodes.send_blocking b 
+                  (create_tactic_request "ssh" 
+                     TEST "client" 
+                     ([(string_of_int ssh_port)] @ ips))  in
         dir := direction; succ := true; ip := res;
         return ()
     with exn ->
@@ -157,10 +166,10 @@ let test a b =
           * ip from the subnet 10.2.(conn_id).0/24 *)
           let nodes = [ 
             {name=(sprintf "%s.d%d" a Config.signpost_number); 
-             tactic_ip=(Int32.add 0x0a020001l (Int32.shift_left conn.conn_id 8)); 
+             tactic_ip=(calculate_tactic_ip 0x0a020001l conn); 
              extern_ip=Some(Uri_IP.string_to_ipv4 !ip);dev_id=None;};
             {name=(sprintf "%s.d%d" b Config.signpost_number);
-             tactic_ip=(Int32.add 0x0a020002l (Int32.shift_left conn.conn_id 8)); 
+             tactic_ip=(calculate_tactic_ip 0x0a020002l conn); 
              extern_ip=Some(Uri_IP.string_to_ipv4 !ip);dev_id=None} ] in 
           conn.nodes <- nodes;
           conn.direction <- !dir;
@@ -170,13 +179,14 @@ let test a b =
       | false -> 
           let nodes = [ 
             {name=(sprintf "d%d" Config.signpost_number); 
-             tactic_ip=(Int32.add 0x0a020001l (Int32.shift_left conn.conn_id 8)); 
-             extern_ip=Some(Uri_IP.string_to_ipv4 Config.external_ip);dev_id=None};
+             tactic_ip=(calculate_tactic_ip 0x0a020001l conn); 
+             extern_ip=Some(Uri_IP.string_to_ipv4 Config.external_ip);
+             dev_id=None};
             {name=(sprintf "%s.d%d" a Config.signpost_number); 
-             tactic_ip=(Int32.add 0x0a020002l (Int32.shift_left conn.conn_id 8));
+             tactic_ip=(calculate_tactic_ip 0x0a020002l conn);
              extern_ip=None;dev_id=None;};
             {name=(sprintf "%s.d%d" b Config.signpost_number); 
-             tactic_ip=(Int32.add 0x0a020003l (Int32.shift_left conn.conn_id 8));
+             tactic_ip=(calculate_tactic_ip 0x0a020003l conn);
              extern_ip=None;dev_id=None;}; ] in 
           conn.nodes <- nodes;
           conn.direction <- !dir;
@@ -194,10 +204,12 @@ let test a b =
 let start_ssh_server conn loc_node rem_node =
   try_lwt
     let q_rem_node = (sprintf "%s.d%d" rem_node Config.signpost_number) in 
-    let rem_sp_ip = (Uri_IP.ipv4_to_string (Nodes.get_sp_ip rem_node)) in
+    let rem_sp_ip = (Uri_IP.ipv4_to_string 
+                       (Nodes.get_node_sp_ip rem_node)) in
     let tunnel_ip = 
       Uri_IP.ipv4_to_string 
-        (get_tactic_ip conn (sprintf "%s.d%d" loc_node Config.signpost_number)) in     
+        (get_tactic_ip conn 
+           (sprintf "%s.d%d" loc_node Config.signpost_number)) in     
     lwt res = Nodes.send_blocking loc_node  
                 (create_tactic_request "ssh" CONNECT "server" 
                    [q_rem_node; rem_node; (Int32.to_string conn.conn_id ); 
@@ -359,8 +371,8 @@ let enable_ssh conn a b =
          [(Int32.to_string conn.conn_id); (Nodes.get_node_mac b); 
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_a));
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_b));
-          (Uri_IP.ipv4_to_string (Nodes.get_sp_ip a));
-          (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b))]) in
+          (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip a));
+          (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b))]) in
     lwt _ = Nodes.send_blocking a rpc_a in
       return ()
   with ex -> 
@@ -406,7 +418,7 @@ let disable_ssh conn a b =
       (create_tactic_request "ssh" DISABLE "disable" 
          [(Int32.to_string conn.conn_id); 
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_a));
-          (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b))]) in
+          (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b))]) in
     lwt _ = Nodes.send_blocking a rpc_a in
       return ()
   with ex -> 

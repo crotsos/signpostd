@@ -168,7 +168,8 @@ module Make (Handler : HandlerSig) = struct
             (printf "received %s from %s:%d external %s:%d\n%!"
               name (Uri_IP.ipv4_to_string loc_ip) loc_port 
               (Uri_IP.ipv4_to_string ip) port;
-            Nodes.add_public_ip name (Uri_IP.ipv4_to_string ip) (loc_ip = ip) 
+            Nodes.add_node_public_ip name 
+              (Uri_IP.ipv4_to_string ip) (loc_ip = ip) 
               (loc_port = port); 
             let reply = BITSTRING{ip:32; port:16; name_len:16;
                                   name:(name_len*8):string} in 
@@ -203,7 +204,8 @@ let thread_client ~address ~port init =
   lwt fd = create_fd ~address ~port in
     lwt src = try_lwt
       let hent = Unix.gethostbyname address in
-      return (Unix.ADDR_INET (hent.Unix.h_addr_list.(0), (to_int port)))
+      return (Unix.ADDR_INET (hent.Unix.h_addr_list.(0), 
+                              (to_int port)))
     with _ ->
       raise_lwt (Failure ("cannot resolve " ^ address))
     in

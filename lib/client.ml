@@ -163,6 +163,7 @@ let dns_t () =
 
 let get_hello_rpc ips =
   let string_port = (string_of_int (to_int !node_port)) in
+  let ips = List.map Uri_IP.ipv4_to_string ips in 
   let ip_stream = (Unix.open_process_in
                      (Config.dir ^ 
                       "/client_tactics/get_local_device br0")) in
@@ -185,15 +186,19 @@ let update_server_if_state_has_changed () =
       return ()
 
 let client_t () =
-  lwt _ = Net_cache.Routing.load_routing_table () in
-  lwt _ = Net_cache.Arp_cache.load_arp () in
-  let xmit_t =
-    while_lwt true do
-      update_server_if_state_has_changed ();
-      Lwt_unix.sleep 2.0
-    done
-  in
-   xmit_t 
+  try_lwt
+    lwt _ = Net_cache.Routing.load_routing_table () in
+    lwt _ = Net_cache.Arp_cache.load_arp () in
+    let xmit_t =
+      while_lwt true do
+        update_server_if_state_has_changed ();
+        Lwt_unix.sleep 2.0
+      done
+    in
+     xmit_t 
+  with exn ->
+    printf "[client] Error: %s\n%!" (Printexc.to_string exn); 
+    return ()
 
 let signal_t  ~port =
   IncomingSignalling.thread_client ~address:Config.external_ip ~port

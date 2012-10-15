@@ -14,6 +14,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+val string_of_mac : string -> string
+val mac_of_string : string -> string
+
 module Routing : sig
   type t
 
@@ -42,8 +45,6 @@ end
  *)
 
 module Arp_cache : sig
-  val string_of_mac : string -> string
-  val mac_of_string : string -> string
   val add_mapping : string -> int32 -> unit
   val del_mapping : int32 -> unit
   val mac_of_ip : int32 -> string option

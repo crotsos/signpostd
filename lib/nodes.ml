@@ -29,6 +29,9 @@ exception InconsistentState of string
 let sp_ip_network = "172.31.0.0"
 let sp_ip_netmask = 16
 
+external nl_get_local_ips: unit ->  (string * string * int) list = 
+  "ocaml_get_local_ip"
+
 (* Nodes have a lot of associated information.
  * It is all part of the node store.
  *)
@@ -42,15 +45,19 @@ type node = {
 }
 
 type nodes_state = {
+  (* node name -> Sp.node *)
   nodes: (string, node) Hashtbl.t;
+  mutable local_name: string;
+  mutable local_sp_ip: int32;
+  mutable server_fd : Lwt_unix.file_descr option;
 }
 
-let local_name = ref "unknown"
-let local_sp_ip = ref 0l
-let server_fd = ref None
-
-(* node name -> Sp.node *)
-let node_db = {nodes=(Hashtbl.create 0);}
+let node_db = {
+  nodes=(Hashtbl.create 0);
+  local_name="unknown";
+  local_sp_ip=0l;
+  server_fd=None;
+}
 
 let calc_rand_ip subnet = 
   let max_ip = (((Random.int subnet) + 1) lsl 2) + 1 in
@@ -91,11 +98,11 @@ let get_ip name =
     | Sp.NoSignallingChannel -> raise Not_found
     | Sp.SignallingChannel(fd) -> fd
 
-let get_local_ips name =
+let get_node_local_ips name =
   let node = get name in
   node.local_ips
 
-let get_sp_ip name = 
+let get_node_sp_ip name = 
   let node = get name in
     node.sp_ip
 
@@ -106,17 +113,14 @@ let set_node_mac name mac =
   let node = get name in
     node.mac <- mac
 
-
-let get_local_name () = 
-  (!local_name)
+let get_local_name () = node_db.local_name
 
 let set_local_name name =
-  local_name := name
+  node_db.local_name <- name
 
 let get_nodes () = 
-  let ret = ref [] in 
-  Hashtbl.iter (fun a b -> ret := [a] @ (!ret)) node_db.nodes;
-  !ret
+  Hashtbl.fold (fun a b r ->  r @ [a] )
+    node_db.nodes []
 
 (* ---------------------------------------------------------------------- *)
 
@@ -134,10 +138,10 @@ let signalling_channel name =
   | Sp.NoSignallingChannel -> raise Not_found
   | Sp.SignallingChannel(fd) -> fd
 
-let set_server_signalling_channel fd = 
-  server_fd := Some(fd)
+let set_server_signalling_channel fd =
+  node_db.server_fd <- Some(fd)
 let server_signalling_channel () =
-  match (!server_fd) with 
+  match (node_db.server_fd) with 
     | Some(fd) -> fd
     | None -> raise Not_found
 
@@ -240,25 +244,20 @@ let set_signalling_channel name fd =
   let sch = Sp.SignallingChannel(fd) in
     update name {node with signalling_channel = sch}
 
-let set_local_ips name local_ips =
+let set_node_local_ips name local_ips =
   let node = get name in
     update name {node with local_ips = local_ips}
 
 let discover_local_ips ?(dev="") () =
-  let ip_stream = (Unix.open_process_in
-  (Config.dir ^ "/client_tactics/get_local_ips " ^ dev)) in
-  let buf = String.make 1500 ' ' in
-  let len = input ip_stream buf 0 1500 in
-  let ips = Re_str.split (Re_str.regexp " ") (String.sub buf 0 (len-1)) in
-  let rec print_ips = function
-    | ip :: ips ->
-(*         Printf.printf "ip: %s\n%!" ip; *)
-        print_ips ips
-    | [] -> ()
-  in
-  ips 
+  List.fold_right (
+    fun (d, _, ip) r -> 
+      if ((dev == "") || (dev == d)) then
+        r @ [(Int32.of_int ip)]
+      else 
+        r
+  ) (nl_get_local_ips ()) []
 
-let add_public_ip name ip is_nattted is_random = 
+let add_node_public_ip name ip is_nattted is_random = 
   try
     let node = Hashtbl.find node_db.nodes name in
       Hashtbl.replace node.public_ips ip (is_nattted, is_random)
@@ -266,7 +265,7 @@ let add_public_ip name ip is_nattted is_random =
     eprintf  "Cannot find node %s\n%!" name;
     ()
 
-let get_public_ips name = 
+let get_node_public_ips name = 
   try
     let node = Hashtbl.find node_db.nodes name in
       Hashtbl.fold (fun k v ret -> [k] @ ret) node.public_ips [] 
@@ -293,8 +292,7 @@ let convert_ip_string_to_int ip_string =
   ipv4_addr_of_string ip_string
 
 let set_local_sp_ip ip = 
-  local_sp_ip := ip
+  node_db.local_sp_ip <- ip
 
-let get_local_sp_ip () = 
-  !local_sp_ip 
+let get_local_sp_ip () = node_db.local_sp_ip 
 (* ---------------------------------------------------------------------- *)
