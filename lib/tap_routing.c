@@ -117,8 +117,8 @@ ocaml_get_routing_table(value unit) {
               rtnl_route_nh_get_gateway (to)));
       else
         gw = 0;
-      printf("src ip:%x mask:%x gw:%x dev:%s\n", i_ip, netmask, 
-          gw, device_name);
+      /*printf("src ip:%x mask:%x gw:%x dev:%s\n", i_ip, netmask, */
+          /*gw, device_name);*/
 
       entry = caml_alloc(5,0);
       Store_field(entry, 0, Val_int(i_ip));
@@ -180,9 +180,9 @@ ocaml_get_local_ip(value unit) {
       nl_cache_get_next((struct nl_object *)it) ) {
     addr = rtnl_addr_get_local(it);
     if (nl_addr_get_family(addr) != AF_INET) continue;
-    printf("got an ip %x on dev %d\n",
-        ntohl(*(int *)nl_addr_get_binary_addr(addr)), 
-        rtnl_addr_get_ifindex(it));
+    /*printf("got an ip %x on dev %d\n",*/
+        /*ntohl(*(int *)nl_addr_get_binary_addr(addr)), */
+        /*rtnl_addr_get_ifindex(it));*/
     dev = rtnl_link_get (links, rtnl_addr_get_ifindex(it));
     if (!dev) continue;
     mac_addr = rtnl_link_get_addr(dev);
@@ -227,7 +227,7 @@ ocaml_get_arp_table(value unit) {
     int type, flag;
     char ip[64], str_mac[64], b_mac[6], *p;
     sscanf(buf, "%s %x %x %s", ip, &type, &flag, str_mac);
-    printf("git ip %s and mac %s\n", ip, str_mac);
+    /*printf("git ip %s and mac %s\n", ip, str_mac);*/
     bzero(b_mac, 6);
     p = (char *)str_mac;
     for (i = 0; i< 6; i++) {
@@ -335,12 +335,12 @@ ocaml_get_routing_table(value unit) {
     if(gw->sa_family == AF_INET) { 
       gwin = (struct sockaddr_in *)gw;
       Store_field(entry, 2, Val_int(ntohl(gwin->sin_addr.s_addr)));
-      printf("net %x gw %x mask %x dev %s\n", 
-          ntohl(dstin->sin_addr.s_addr), ntohl(gwin->sin_addr.s_addr), ntohl(maskin->sin_addr.s_addr), device_name);
+/*      printf("net %x gw %x mask %x dev %s\n", */
+          /*ntohl(dstin->sin_addr.s_addr), ntohl(gwin->sin_addr.s_addr), ntohl(maskin->sin_addr.s_addr), device_name);*/
     } else {
       Store_field(entry, 2, Val_int(0));
-      printf("net %x gw %x mask %x dev %s\n", ntohl(dstin->sin_addr.s_addr), 0,
-          ntohl(maskin->sin_addr.s_addr), device_name);
+/*      printf("net %x gw %x mask %x dev %s\n", ntohl(dstin->sin_addr.s_addr), 0,*/
+          /*ntohl(maskin->sin_addr.s_addr), device_name);*/
     }
     Store_field(entry, 0, Val_int(ntohl(dstin->sin_addr.s_addr)));
     Store_field(entry, 1, Val_int(ntohl(maskin->sin_addr.s_addr)));
@@ -425,7 +425,7 @@ ocaml_get_local_ip(value unit) {
     for (i = 0; i<intf_count; i++) {
       if(strcmp(name_cache[i][1], p->ifa_name) != 0) continue;
 
-      printf("found ip %x\n", ip_in->sin_addr.s_addr);
+      /*printf("found ip %x\n", ip_in->sin_addr.s_addr);*/
       tmp =  caml_alloc(2, 0);
       entry = caml_alloc(3, 0); 
       Store_field(entry, 0, caml_copy_string(name_cache[i][1]));
@@ -488,7 +488,7 @@ ocaml_get_arp_table(value unit) {
     entry = caml_alloc(2,0);
     // Store_field(entry, 0, Val_int(ntohl(dstin->sin_addr.s_addr)));
     Store_field(entry, 1, Val_int(ntohl(sin->sin_addr.s_addr)));
-    printf("mac: %s, ip %x\n", ether_ntoa(LLADDR(sdl)), sin->sin_addr.s_addr);
+    /*printf("mac: %s, ip %x\n", ether_ntoa(LLADDR(sdl)), sin->sin_addr.s_addr);*/
 
     // store in list
     tmp =  caml_alloc(2, 0);
