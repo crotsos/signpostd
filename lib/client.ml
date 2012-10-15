@@ -178,12 +178,11 @@ let update_server_if_state_has_changed () =
   let ips = Nodes.discover_local_ips () in
   match (ips <> !local_ips) with
   | true -> begin
-      local_ips := ips;
+      let _ = local_ips := ips in 
       let hello_rpc = get_hello_rpc !local_ips in
-      Nodes.send_to_server hello_rpc
+        Nodes.send_to_server hello_rpc
   end
-  | false ->
-      return ()
+  | false -> return ()
 
 let client_t () =
   try_lwt
