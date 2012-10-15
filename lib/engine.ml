@@ -222,13 +222,13 @@ let find a b =
           let waiter, wakener = Lwt.task () in 
           let _ = Lwt.ignore_result(connect wakener a b) in
           lwt res = waiter in 
-          let ret = Uri_IP.ipv4_to_string (Nodes.get_sp_ip b) in
+          let ret = Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b) in
             (match res with
               | true -> return (Sp.IPAddressInstance(ret)) 
               | false -> return (Sp.Unreachable) ))
         | Connections.SUCCESS_ACTIVE -> 
             return(Sp.IPAddressInstance(
-              (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b))))
+              (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b))))
         end 
       | PROCESSING -> 
           Printf.printf "[engine] waiting for tactic\n%!";
@@ -236,7 +236,7 @@ let find a b =
             (match res with
               | Connections.SUCCESS_ACTIVE -> 
             return(Sp.IPAddressInstance(
-              (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b))))
+              (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b))))
               | _ ->return (Sp.Unreachable) )
 
   with _ ->

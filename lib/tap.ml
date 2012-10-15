@@ -49,10 +49,11 @@ let setup_dev dev_id ip =
   let record = input_line ip_stream in 
   let ips = Re_str.split (Re_str.regexp " ") record in
   let _::mac::_ = ips in 
-    Net_cache.Arp_cache.add_mapping 
-      (Net_cache.Arp_cache.mac_of_string mac) (Uri_IP.string_to_ipv4 ip);
-    Net_cache.Port_cache.add_mac (Net_cache.Arp_cache.mac_of_string mac)
-      (OP.Port.int_of_port OP.Port.Local );
+  let _ = Net_cache.Arp_cache.add_mapping 
+      (Net_cache.mac_of_string mac) (Uri_IP.string_to_ipv4 ip) in 
+  let _ = Net_cache.Port_cache.add_mac 
+            (Net_cache.mac_of_string mac)
+            (OP.Port.int_of_port OP.Port.Local ) in 
     return (ip)
 
 let unset_dev dev_id ip =

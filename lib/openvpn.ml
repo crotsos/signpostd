@@ -189,7 +189,7 @@ module Manager = struct
     let actions = [ OP.Flow.Set_nw_src(local_ip);
                     OP.Flow.Set_nw_dst(rem_ip);
                     OP.Flow.Set_dl_dst(
-                      (Net_cache.Arp_cache.mac_of_string mac_addr));
+                      (Net_cache.mac_of_string mac_addr));
                     OP.Flow.Output((OP.Port.port_of_int port), 
                                    2000);] in
     let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
@@ -233,7 +233,7 @@ module Manager = struct
     let ips = Re_str.split (Re_str.regexp " ") 
                 (input_line ip_stream) in 
     let _::mac::_ = ips in
-    let mac = Net_cache.Arp_cache.mac_of_string mac in 
+    let mac = Net_cache.mac_of_string mac in 
     
     (* Setup incoming flow *)
     let flow_wild = OP.Wildcards.({
@@ -362,7 +362,7 @@ module Manager = struct
     let actions = [ OP.Flow.Set_nw_src(local_ip);
                     OP.Flow.Set_nw_dst(rem_ip);
                     OP.Flow.Set_dl_dst(
-                      (Net_cache.Arp_cache.mac_of_string mac_addr));
+                      (Net_cache.mac_of_string mac_addr));
                     OP.Flow.Output((OP.Port.port_of_int port), 
                                    2000);] in
     let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
@@ -403,7 +403,7 @@ module Manager = struct
     let ips = Re_str.split (Re_str.regexp " ") 
                 (input_line ip_stream) in 
     let _::mac::_ = ips in
-    let mac = Net_cache.Arp_cache.mac_of_string mac in 
+    let mac = Net_cache.mac_of_string mac in 
     
     (* Setup incoming flow *)
     let flow_wild = OP.Wildcards.({
@@ -468,7 +468,7 @@ module Manager = struct
     let test = Re_str.split (Re_str.regexp " ") 
                  (input_line ip_stream) in 
     let _::dl_src::_ = test in
-    let dl_src = Net_cache.Arp_cache.mac_of_string dl_src in
+    let dl_src = Net_cache.mac_of_string dl_src in
     let data = OP.marshal_and_sub (create_gratituous_arp dl_src nw_src) 
                  (Lwt_bytes.create 512) in
     let pkt = 
