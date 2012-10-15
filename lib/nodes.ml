@@ -251,7 +251,7 @@ let set_node_local_ips name local_ips =
 let discover_local_ips ?(dev="") () =
   List.fold_right (
     fun (d, _, ip) r -> 
-      if ((dev == "") || (dev == d)) then
+      if ((dev = "") || (dev = d)) then
         r @ [(Int32.of_int ip)]
       else 
         r
