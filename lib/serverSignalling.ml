@@ -30,39 +30,20 @@ let config_json =
     ("external_dns", String Config.external_dns)
   ]
 
-let config_datagram =
-  let open Json in
-  to_string(Object [
-    "response", (Object [
-      ("result", config_json);
-      ("error", Null);
-      ("id", Int (Int64.of_int 1))
-  ])
-    ])
-
-let handle_config_discovery = function
-  | ip :: port_str :: [] -> 
-    let port = Int64.of_int (int_of_string port_str) in
-    Printf.printf "Sending reply to %s:%Li\n%!" ip port;
-    let addr = Nodes.addr_from ip port in
-    Nodes.send_datagram config_datagram addr >>= fun len ->
-      return ()
-  | _ -> 
-    eprintf "Handle_config_discovery failed because of invalid RPC\n%!";
-    return ()
-
 let handle_hello fd src_ip args =
   let node :: ip :: str_port :: mac :: local_ips = args in
   let port = Int64.of_int (int_of_string str_port) in
   eprintf "rpc: hello %s -> %s:%Li\n%!" node ip port;
   Nodes.set_signalling_channel node fd;
-  Nodes.set_local_ips node local_ips;
+  Nodes.set_node_local_ips node local_ips;
   Nodes.set_node_mac node mac;
 (*   eprintf "About to check for publicly accesible ips\n%!"; *)
   let rpc = create_notification "setup_sp_ip" 
-              [(Uri_IP.ipv4_to_string (Nodes.get_sp_ip node))] in 
+              [(Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip node))] in 
   lwt _ = Nodes.send node rpc in 
-  let rpc = create_request "test_nat" [Config.external_ip; (Int64.to_string SignalHandler.echo_port)] in
+  let rpc = create_request "test_nat" 
+              [Config.external_ip; 
+               (Int64.to_string SignalHandler.echo_port)] in
   lwt _ = Nodes.send node rpc in 
 (*   Nodes.check_for_publicly_accessible_ips node local_ips >>= fun public_ips
  *   ->  *)
@@ -72,9 +53,6 @@ let handle_hello fd src_ip args =
 
 let handle_request fd src_ip command arg_list =
   match command with
-  | Command("config_discovery") ->
-    handle_config_discovery arg_list >> 
-    return Sp.NoResponse
   | Command(command_name) -> 
     eprintf "ERROR: Received a REQUEST RPC that the server can't handle
     (%s)\n%!" command_name;

@@ -125,9 +125,11 @@ let test a b =
         TEST "server_start" [(string_of_int openvpn_port)]) in
       lwt _ = (Nodes.send_blocking a rpc) in 
   
-      let not_ips =  Nodes.get_local_ips b in
-      let ips = List.filter (fun a -> not (List.mem a not_ips) ) 
-                  ((Nodes.get_local_ips a) @ (Nodes.get_public_ips a)) in  
+      let not_ips =  Nodes.get_node_local_ips b in
+      let ips = 
+        List.filter (fun a -> not (List.mem a not_ips) ) 
+          ((Nodes.get_node_local_ips a) @ 
+           (Nodes.get_node_public_ips a)) in  
 
       lwt res = 
         Nodes.send_blocking b (create_tactic_request "openvpn" 
@@ -242,14 +244,14 @@ let start_local_server conn a b =
              (sprintf "d%d.%s" Config.signpost_number
                 Config.domain);
              (Int32.to_string conn.conn_id);
-             (Uri_IP.ipv4_to_string (Nodes.get_sp_ip a)); ] in 
+             (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip a)); ] in 
   lwt ip = Openvpn.Manager.connect "server" 
              [(string_of_int openvpn_port); 
               (sprintf "%s.d%d" b Config.signpost_number) ; b;
               (sprintf "d%d.%s" Config.signpost_number
                  Config.domain);
              (Int32.to_string conn.conn_id);
-              (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b));] in 
+              (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b));] in 
     return (ip)
 
 let connect a b =
@@ -291,8 +293,8 @@ let enable_openvpn conn a b =
          [(Int32.to_string conn.conn_id); (Nodes.get_node_mac b); 
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_a));
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_b));
-          (Uri_IP.ipv4_to_string (Nodes.get_sp_ip a));
-          (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b))]) in
+          (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip a));
+          (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b))]) in
     lwt _ = Nodes.send_blocking a rpc  in
       return ()
   with ex -> 
@@ -317,11 +319,11 @@ let disable_openvpn conn a b =
       (create_tactic_request "openvpn" DISABLE "disable" 
          [(Int32.to_string conn.conn_id); 
           (Uri_IP.ipv4_to_string (get_tactic_ip conn q_a));
-          (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b))]) in
+          (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b))]) in
     lwt _ = Nodes.send_blocking a rpc_a in
       return ()
   with ex -> 
-    Printf.printf "[ssh]Failed ssh enabling :%s\n%!"
+    Printf.printf "[openvpn]Failed openvpn enabling :%s\n%!"
       (Printexc.to_string ex);
     raise Openvpn_error
 

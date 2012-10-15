@@ -41,8 +41,10 @@ route -n | grep 10\\.\[23\]\\. | awk '{print $1" netmask "$3" gw "$2;}' \
     | xargs -I '{}' echo route del -net '{}' >> /tmp/sp_route_cleanup.sh
 sh /tmp/sp_route_cleanup.sh
 
-
+intf=`cat lib/config.ml | grep net_intf | awk -F '=' '{print $2}' | tr -d \ \"`
+port_id=`ovs-dpctl show br0 | grep eth0 | grep -o "port [1-9]*" | sed -e "s/port //g"`
 ovs-ofctl del-flows br0
-ovs-ofctl add-flow br0 hard_timeout=7200,priority=1,action=NORMAL
+ovs-ofctl add-flow br0 hard_timeout=7200,in_port=$port_id,priority=1,action=local
+ovs-ofctl add-flow br0 hard_timeout=7200,in_port=LOCAL,priority=1,action=output:$port_id
 
 ../server.native

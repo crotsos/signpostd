@@ -94,9 +94,11 @@ let test a b =
 
   let pairwise_connection_test a b =
     try_lwt 
-      let not_ips =  Nodes.get_local_ips b in
-      let ips = List.filter (fun a -> not (List.mem a not_ips) ) 
-                  ((Nodes.get_local_ips a) @(Nodes.get_public_ips b)) in  
+      let not_ips =  Nodes.get_node_local_ips b in
+      let ips = 
+        List.filter (fun a -> not (List.mem a not_ips) ) 
+          ((Nodes.get_node_local_ips a) @
+           (Nodes.get_node_public_ips b)) in  
 
       lwt ret = 
         Nodes.send_blocking b (create_tactic_request "direct" 
@@ -154,8 +156,8 @@ let enable_direct conn a b =
          [(Nodes.get_node_mac b); 
           (Uri_IP.ipv4_to_string (get_external_ip conn q_a));
           (Uri_IP.ipv4_to_string (get_external_ip conn q_b));
-          (Uri_IP.ipv4_to_string (Nodes.get_sp_ip a));
-          (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b))]) in
+          (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip a));
+          (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b))]) in
     lwt _ = Nodes.send_blocking a rpc  in
       return ()
   with ex -> 
@@ -185,7 +187,7 @@ let disable_direct conn a b =
     let rpc_a = 
       (create_tactic_request "ssh" DISABLE "disable" 
          [(Uri_IP.ipv4_to_string (get_external_ip conn q_a));
-          (Uri_IP.ipv4_to_string (Nodes.get_sp_ip b))]) in
+          (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b))]) in
     lwt _ = Nodes.send_blocking a rpc_a in
       return ()
   with ex -> 

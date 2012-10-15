@@ -279,7 +279,7 @@ module Manager = struct
                   Printf.printf "[privoxy] a privoxy connection on port %d\n%!" 
                     src_port;
                   Printf.printf "Looking up mac %s\n%!" 
-                    (Net_cache.Arp_cache.string_of_mac m.OP.Match.dl_src);
+                    (Net_cache.string_of_mac m.OP.Match.dl_src);
                   let port_id = match (Net_cache.Port_cache.port_id_of_mac 
                                          m.OP.Match.dl_dst) with
                     | Some(port_id) -> OP.Port.port_of_int port_id
@@ -334,7 +334,7 @@ module Manager = struct
                       src_port;
                     try_lwt
                       Printf.printf "Looking up mac %s\n%!" 
-                      (Net_cache.Arp_cache.string_of_mac m.OP.Match.dl_src);
+                      (Net_cache.string_of_mac m.OP.Match.dl_src);
                       let port_id = match (Net_cache.Port_cache.port_id_of_mac 
                                m.OP.Match.dl_dst) with
                         | Some(port_id) -> OP.Port.port_of_int port_id
