@@ -175,7 +175,7 @@ let get_hello_rpc ips =
     create_notification "hello" args
 
 let update_server_if_state_has_changed () =
-  let ips = Nodes.discover_local_ips () in
+  let ips = Nodes.discover_local_ips ~dev:"br0" () in
   match (ips <> !local_ips) with
   | true -> begin
       let _ = local_ips := ips in 

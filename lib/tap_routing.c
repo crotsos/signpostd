@@ -120,11 +120,14 @@ ocaml_get_routing_table(value unit) {
       /*printf("src ip:%x mask:%x gw:%x dev:%s\n", i_ip, netmask, */
           /*gw, device_name);*/
 
-      entry = caml_alloc(5,0);
-      Store_field(entry, 0, Val_int(i_ip));
-      Store_field(entry, 1, Val_int(netmask));
-      Store_field(entry, 3, Val_int(gw));
-      Store_field(entry, 4, caml_copy_string(device_name));
+      entry = caml_alloc(7,0);
+      Store_field(entry, 0, Val_int(i_ip & 0xFFFF));
+      Store_field(entry, 1, Val_int(i_ip >> 16));
+      Store_field(entry, 2, Val_int(netmask & 0xFFFF));
+      Store_field(entry, 3, Val_int(netmask >> 16));
+      Store_field(entry, 4, Val_int(gw & 0xFFFF));
+      Store_field(entry, 5, Val_int(gw >> 16));
+      Store_field(entry, 6, caml_copy_string(device_name));
     
     // store in list
     tmp =  caml_alloc(2, 0);
@@ -150,6 +153,7 @@ ocaml_get_local_ip(value unit) {
   struct rtnl_addr *it;
   struct nl_addr *addr, *mac_addr;
   struct rtnl_link *dev;
+  uint32_t ip;
 
   // Init return list
   fd = nl_socket_alloc();
@@ -180,21 +184,21 @@ ocaml_get_local_ip(value unit) {
       nl_cache_get_next((struct nl_object *)it) ) {
     addr = rtnl_addr_get_local(it);
     if (nl_addr_get_family(addr) != AF_INET) continue;
-    /*printf("got an ip %x on dev %d\n",*/
-        /*ntohl(*(int *)nl_addr_get_binary_addr(addr)), */
-        /*rtnl_addr_get_ifindex(it));*/
     dev = rtnl_link_get (links, rtnl_addr_get_ifindex(it));
     if (!dev) continue;
     mac_addr = rtnl_link_get_addr(dev);
     if (!mac_addr) continue;
+    ip = ntohl(*(uint32_t *)nl_addr_get_binary_addr(addr));
+/*    printf("got an ip %x on dev %d\n", ip, */
+        /*rtnl_addr_get_ifindex(it));*/
     tmp =  caml_alloc(2, 0);
-    entry = caml_alloc(3, 0); 
+    entry = caml_alloc(4, 0); 
     Store_field(entry, 0, caml_copy_string(rtnl_link_get_name(dev)));
     mac = caml_alloc_string(6); 
     memcpy( String_val(mac), nl_addr_get_binary_addr(mac_addr), 6);
     Store_field(entry, 1, mac);
-    Store_field(entry, 2, Val_int(
-          ntohl(*(int *)nl_addr_get_binary_addr(addr))));
+    Store_field(entry, 2, Val_int(0xFFFF & ip));
+    Store_field(entry, 3, Val_int(ip>>16));
     Store_field( tmp, 0, entry);  // head
     Store_field( tmp, 1, ret);  // tail
     ret = tmp;
@@ -236,9 +240,10 @@ ocaml_get_arp_table(value unit) {
       p += 3;
     }
     //PRINT ETHER (OR STATUS)
-    in_addr_t in_ip = inet_addr(ip);
-    entry = caml_alloc(2,0);
-    Store_field(entry, 1, Val_int(ntohl(in_ip)));
+    uint32_t in_ip = ntohl(inet_addr(ip));
+    entry = caml_alloc(3,0);
+    Store_field(entry, 1, Val_int(in_ip & 0xFFF));
+    Store_field(entry, 2, Val_int(in_ip >> 16));
     mac = caml_alloc_string(6); 
     memcpy( String_val(mac), b_mac, 6);
 

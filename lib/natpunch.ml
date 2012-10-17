@@ -490,6 +490,14 @@ module Manager = struct
            * send a syn packet also out to the internet in order to open state
            * in the nat
            * *)
+(*          let pkt = gen_tcp_syn isn local_mac gw_mac local_ip (Uri_IP.string_to_ipv4 "192.168.1.106")
+                      dst_port src_port 0x3000 in 
+          let bs = (OP.Packet_out.packet_out_to_bitstring 
+                      (OP.Packet_out.create ~buffer_id:(-1l)
+                      ~actions:[OP.(Flow.Output(port , 2000))]
+                      ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
+          lwt _ = OC.send_of_data controller dpid bs in *)
+
           let pkt = Pktgen.gen_tcp_syn isn local_mac gw_mac local_ip dst_ip
                       dst_port src_port 0x3000 in 
           let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out
@@ -513,8 +521,7 @@ module Manager = struct
              nw_src=local_sp_ip; nw_dst=remote_sp_ip;
              nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
              tp_src=dst_port; tp_dst=src_port;}) in
-           lwt _ = Sp_controller.register_handler m
-           filter_outgoing_tcp_packet in  
+           lwt _ = Sp_controller.register_handler m filter_outgoing_tcp_packet in  
 (*
            lwt _ = Sp_controller.register_handler m
            handle_outgoing_syn_packet in 
