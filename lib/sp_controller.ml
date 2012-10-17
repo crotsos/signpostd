@@ -165,7 +165,8 @@ let preinstall_flows_eth0 controller dpid port_id =
     let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
                 ~priority:2 ~idle_timeout:0  ~hard_timeout:0
                 ~buffer_id:(-1) [] () in 
-    let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+             (Lwt_bytes.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in
 
     (* ARP handling *)
@@ -175,9 +176,10 @@ let preinstall_flows_eth0 controller dpid port_id =
     let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
                 ~priority:2 ~idle_timeout:0  ~hard_timeout:0
                 ~buffer_id:(-1) [] () in 
-    let bs = OP.Flow_mod.flow_mod_to_bitstring pkt in
+    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+             (Lwt_bytes.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in
-    return ()
+      return ()
 
 
   let preinstall_flows_eth1 controller dpid port_id =
