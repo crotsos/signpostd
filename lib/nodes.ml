@@ -29,7 +29,8 @@ exception InconsistentState of string
 let sp_ip_network = "172.31.0.0"
 let sp_ip_netmask = 16
 
-external nl_get_local_ips: unit ->  (string * string * int) list = 
+external nl_get_local_ips: unit ->  
+  (string * string * int * int) list = 
   "ocaml_get_local_ip"
 
 (* Nodes have a lot of associated information.
@@ -250,9 +251,11 @@ let set_node_local_ips name local_ips =
 
 let discover_local_ips ?(dev="") () =
   List.fold_right (
-    fun (d, _, ip) r -> 
+    fun (d, _, ip_l, ip_h) r ->
+      let ip = Int32.add (Int32.shift_left (Int32.of_int ip_h) 16)
+                 (Int32.of_int ip_l) in
       if ((dev = "") || (dev = d)) then
-        r @ [(Int32.of_int ip)]
+        r @ [ip]
       else 
         r
   ) (nl_get_local_ips ()) []

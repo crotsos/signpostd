@@ -19,10 +19,10 @@ open Printf
 
 module OP = Openflow.Ofpacket
 
-external get_local_ips: unit ->  (string * string * int) list = 
+external get_local_ips: unit ->  (string * string * int * int) list = 
   "ocaml_get_local_ip"
 external get_routing_table: unit -> 
-  (int * int * int * int * string) list = 
+  (int * int * int * int * int * int * string) list = 
     "ocaml_get_routing_table"
 
 let string_of_mac mac = 
@@ -77,12 +77,17 @@ module Routing = struct
       (Int32.logand ip fib.mask)
  
   let load_routing_table () =
-    let init_fib = 
+    let init_fib =
+      let open Int32 in 
       List.map
-        (fun (ip, mask, gw, local_ip, dev_id) -> 
-           Int32.({ip=(of_int ip); mask=(of_int mask); 
-            gw=(of_int gw); local_ip=(of_int local_ip); 
-            dev_id;})
+        (fun (ip_l, ip_h, mask_l, mask_h, gw_l, gw_h, dev_id) -> 
+           let ip = add (shift_left (of_int ip_h) 16 )
+                      (of_int ip_l) in 
+           let gw = add (shift_left (of_int gw_h) 16 )
+                      (of_int gw_l) in 
+           let mask = add (shift_left (of_int mask_h) 16 )
+                      (of_int mask_l) in 
+             Int32.({ip; mask; gw; local_ip=0l; dev_id;})
         )  (get_routing_table ()) in
     let local_ips = Nodes.discover_local_ips () in
     let filter_local_net_fib ips fib r =
@@ -185,7 +190,7 @@ module Port_cache = struct
 end
 
 module Arp_cache = struct 
-  external get_arp_table: unit ->  (string * int) list = 
+  external get_arp_table: unit ->  (string * int * int) list = 
     "ocaml_get_arp_table"
   
   let cache = Hashtbl.create 64
@@ -211,18 +216,24 @@ module Arp_cache = struct
 
   let load_arp () =
     (* reading ip dev mappings *)
-    let _ = 
+    let open Int32 in 
+    let _ =
       List.iter 
-        (fun (dev, mac, ip) -> 
-           let _ = add_mapping mac (Int32.of_int ip) in 
+        (fun (dev, mac, ip_l, ip_h) -> 
+           let ip = add (shift_left (of_int ip_h) 16 )
+                      (of_int ip_l) in 
+           let _ = add_mapping mac ip in 
              Port_cache.add_mac mac 
                (OP.Port.int_of_port OP.Port.Local)
         ) (get_local_ips ()) in 
     (* reading arp cache *)
     let arps = get_arp_table () in 
-    let _ = List.iter 
-              (fun (mac, ip) -> 
-                 add_mapping mac (Int32.of_int ip)) arps in 
+    let _ = 
+      List.iter 
+        (fun (mac, ip_l, ip_h) -> 
+           let ip = add (shift_left (of_int ip_h) 16 )
+                      (of_int ip_l) in 
+             add_mapping mac ip) arps in 
       return ()
 
   let mac_of_ip ip =
