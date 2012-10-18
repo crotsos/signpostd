@@ -170,7 +170,8 @@ module Manager = struct
    *    connection functions     
    *******************************************************************)
 
-  let server_add_client conn_id domain rem_extern_ip loc_dev_id rem_node = 
+  let server_add_client conn_id domain rem_extern_ip loc_dev_id 
+        rem_node = 
     Printf.printf "[ssh] Adding new key from domain %s\n%!" domain;
     lwt _ = run_server () in 
     (* Dump keys in authorized_key file *)

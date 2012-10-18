@@ -69,7 +69,7 @@ let get_external_ip state name =
   with Not_found -> None
 
 let get_dev_id state name =
-  try 
+  try
     let ret = List.find (fun a -> (a.name = name)) state.nodes in
       ret.dev_id
   with Not_found -> None
@@ -111,14 +111,11 @@ let weight a b =
     with Not_found ->
       100
 
-
 (*
  * testing code
  * *)
-
 let calculate_tactic_ip base conn =
   Int32.add base (Int32.shift_left conn.conn_id 8)
-
 
 let test a b =
   (* Trying to see if connectivity is possible *)
@@ -212,7 +209,8 @@ let start_ssh_server conn loc_node rem_node =
            (sprintf "%s.d%d" loc_node Config.signpost_number)) in     
     lwt res = Nodes.send_blocking loc_node  
                 (create_tactic_request "ssh" CONNECT "server" 
-                   [q_rem_node; rem_node; (Int32.to_string conn.conn_id ); 
+                   [q_rem_node; rem_node; 
+                    (Int32.to_string conn.conn_id ); 
                     rem_sp_ip;tunnel_ip]) in 
       return (res)
   with exn -> 
@@ -265,10 +263,11 @@ let start_local_server conn a b =
   lwt _ = Ssh.Manager.run_server () in
 
   let create_devices host = 
-    let dev_id = Tap.get_new_dev_ip () in  
+    let dev_id = Tap.get_new_dev_ip () in 
     let host = sprintf "%s.d%d.%s" host Config.signpost_number
                  Config.domain in
-    let _ = Ssh.Manager.server_add_client conn.conn_id host 0l dev_id in
+    let _ = Ssh.Manager.server_add_client conn.conn_id host 
+              0l dev_id "" in
       dev_id
   in
   let connect_client loc_node rem_dev rem_node =
@@ -376,8 +375,8 @@ let enable_ssh conn a b =
     lwt _ = Nodes.send_blocking a rpc_a in
       return ()
   with ex -> 
-    Printf.printf "[ssh]Failed ssh enabling %s->%s:%s\n%!" a b
-      (Printexc.to_string ex);
+    Printf.printf "[ssh]Failed ssh enabling %s->%s:%s \n%s\n%!" a b
+      (Printexc.to_string ex) (Printexc.get_backtrace ());
     raise Ssh_error
 
 let enable_cloud_ssh conn a b =
