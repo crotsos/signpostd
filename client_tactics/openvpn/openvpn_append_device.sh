@@ -21,14 +21,14 @@ fi
 
 # sign the remote domain certificate
 /usr/local/bin/crypto-convert \
-  -k $remote_host \
-  -t DNS_PUB \
   -p $conf_dir/signpost.pem  \
-  -a sign \
+  -d 30758400 \
   -s "C=UK,O=signpost,CN=$remote_host," \
   -i "C=UK,O=signpost,CN=$local_host," \
-  -T PEM_CERT \
-  -D 30758400 \
-  -K $dst_dir/allowed-$remote_host.crt
+  SIGN \
+  $remote_host \
+  DNS_PUB \
+  $dst_dir/allowed-$remote_host.crt \
+  PEM_CERT
 
 cat $dst_dir/tmp.crt $dst_dir/allowed-*.crt > $dst_dir/ca.crt

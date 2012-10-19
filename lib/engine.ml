@@ -20,29 +20,14 @@ open Printf
 open Connections
 
 let tactics = [
-     (module DirectConnection : Sp.TacticSig);  
+(*      (module DirectConnection : Sp.TacticSig);   *)
 (*    (module AvahiConnection : Sp.TacticSig);  *)
-     (module OpenvpnConnection : Sp.TacticSig);
-     (module SshConnection : Sp.TacticSig);   
+     (module OpenvpnConnection : Sp.TacticSig); 
+(*      (module SshConnection : Sp.TacticSig);    *)
 (*   (module PrivoxyConnection : Sp.TacticSig);  *)
 (*   (module TorConnection : Sp.TacticSig);  *)
 (*      (module NatpunchConnection : Sp.TacticSig); *)
   ]
-
-let tactics_not_attempted_or_failed_for a b =
-  let tactic_status_fn = 
-    Connections.get_tactic_status a b in
-  List.find (fun t ->
-    let module Tactic = (val t : Sp.TacticSig) in
-    let name = Tactic.name () in
-    try
-      match (tactic_status_fn name) with
-        | Connections.SUCCESS_INACTIVE
-        | Connections.SUCCESS_ACTIVE -> false
-        | _ -> true
-    with Not_found ->
-      true
-  ) tactics
 
 let get_tactic_module name = 
   try 

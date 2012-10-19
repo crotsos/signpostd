@@ -26,39 +26,39 @@ openssl genrsa -out $dst_dir/vpn.pem 512
 
 # self sign key
 crypto-convert \
-  -k $conf_dir/signpost.pem \
-  -t PEM_PRIV \
   -p $conf_dir/signpost.pem  \
-  -a sign \
   -s "C=UK,O=signpost,CN=$local_host," \
   -i "C=UK,O=signpost,CN=$local_host," \
-  -T PEM_CERT \
-  -D 30758400 \
-  -K $dst_dir/tmp.crt
+  -d 30758400 \
+  SIGN \
+  $conf_dir/signpost.pem \
+  PEM_PRIV \
+  $dst_dir/tmp.crt \
+  PEM_CERT 
 
 # sign the vpn key
 crypto-convert \
-  -k $dst_dir/vpn.pem \
-  -t PEM_PRIV \
   -p $conf_dir/signpost.pem  \
-  -a sign \
+  -d 30758400 \
   -s "C=UK,O=signpost,CN=vpn.$local_host," \
   -i "C=UK,O=signpost,CN=$local_host," \
-  -T PEM_CERT \
-  -D 30758400 \
-  -K $dst_dir/vpn.crt
+  SIGN \
+  $dst_dir/vpn.pem \
+  PEM_PRIV \
+  $dst_dir/vpn.crt \
+  PEM_CERT 
 
 # sign the remote domain certificate
 crypto-convert \
-  -k $remote_host \
-  -t DNS_PUB \
   -p $conf_dir/signpost.pem  \
-  -a sign \
+  -d 30758400 \
   -s "C=UK,O=signpost,CN=$remote_host," \
   -i "C=UK,O=signpost,CN=$local_host," \
-  -T PEM_CERT \
-  -D 30758400 \
-  -K $dst_dir/allowed-$remote_host.crt
+  SIGN \
+  $remote_host \
+  DNS_PUB \
+  $dst_dir/allowed-$remote_host.crt \
+  PEM_CERT 
 
 cat $dst_dir/tmp.crt $dst_dir/allowed-*.crt > $dst_dir/ca.crt
 # cat $dst_dir/dns.crt > $dst_dir/ca.crt
