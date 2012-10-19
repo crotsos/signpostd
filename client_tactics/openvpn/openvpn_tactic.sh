@@ -12,8 +12,8 @@ remote_ip=$6
 dst_domain=$7
 tmp_dir=$9
 conf_dir=$8
-ns_ip=$10
-ns_port=$11
+ns_ip=${10}
+ns_port=${11}
 
 # create tmp folder
 remote_host=$remote_node.$domain
@@ -27,6 +27,7 @@ fi
 openssl genrsa -out $dst_dir/vpn.pem 512
 
 # self sign key
+echo "self sign key...."
 crypto-convert \
   -p $conf_dir/signpost.pem  \
   -s "C=UK,O=signpost,CN=$local_host," \
@@ -41,6 +42,21 @@ crypto-convert \
   PEM_CERT 
 
 # sign the vpn key
+echo "sign the vpn key $ns_ip:$ns_port...."
+echo "crypto-convert \
+  -p $conf_dir/signpost.pem  \
+  -d 30758400 \
+  -s \"C=UK,O=signpost,CN=vpn.$local_host,\" \
+  -i \"C=UK,O=signpost,CN=$local_host,\" \
+  -S $ns_ip \
+  -P $ns_port \
+  SIGN \
+  $dst_dir/vpn.pem \
+  PEM_PRIV \
+  $dst_dir/vpn.crt \
+  PEM_CERT "
+
+
 crypto-convert \
   -p $conf_dir/signpost.pem  \
   -d 30758400 \
@@ -55,6 +71,7 @@ crypto-convert \
   PEM_CERT 
 
 # sign the remote domain certificate
+echo "sign the remote domain certificate...."
 crypto-convert \
   -p $conf_dir/signpost.pem  \
   -d 30758400 \
