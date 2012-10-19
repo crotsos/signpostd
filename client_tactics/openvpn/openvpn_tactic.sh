@@ -12,6 +12,8 @@ remote_ip=$6
 dst_domain=$7
 tmp_dir=$9
 conf_dir=$8
+ns_ip=$10
+ns_port=$11
 
 # create tmp folder
 remote_host=$remote_node.$domain
@@ -30,6 +32,8 @@ crypto-convert \
   -s "C=UK,O=signpost,CN=$local_host," \
   -i "C=UK,O=signpost,CN=$local_host," \
   -d 30758400 \
+  -S $ns_ip \
+  -P $ns_port \
   SIGN \
   $conf_dir/signpost.pem \
   PEM_PRIV \
@@ -42,6 +46,8 @@ crypto-convert \
   -d 30758400 \
   -s "C=UK,O=signpost,CN=vpn.$local_host," \
   -i "C=UK,O=signpost,CN=$local_host," \
+  -S $ns_ip \
+  -P $ns_port \
   SIGN \
   $dst_dir/vpn.pem \
   PEM_PRIV \
@@ -54,6 +60,8 @@ crypto-convert \
   -d 30758400 \
   -s "C=UK,O=signpost,CN=$remote_host," \
   -i "C=UK,O=signpost,CN=$local_host," \
+  -S $ns_ip \
+  -P $ns_port \
   SIGN \
   $remote_host \
   DNS_PUB \

@@ -262,14 +262,15 @@ module Manager = struct
               "/client_tactics/openvpn/openvpn_tactic.sh" in
     let exec_cmd = 
       if ((Nodes.get_local_name ()) = "unknown" ) then
-        sprintf "%s %s %d %s d%d %s %s %s %s %s "
+        sprintf "%s %s %d %s d%d %s %s %s %s %s %s %d"
           cmd port conn_id Config.domain Config.signpost_number
           node server_ip domain Config.conf_dir Config.tmp_dir
+          Config.external_dns 5354
       else
-        sprintf "%s %s %d %s %s.d%d %s %s %s %s %s "
+        sprintf "%s %s %d %s %s.d%d %s %s %s %s %s %s %d"
           cmd port conn_id Config.domain (Nodes.get_local_name ())
           Config.signpost_number node server_ip domain 
-          Config.conf_dir Config.tmp_dir in
+          Config.conf_dir Config.tmp_dir Config.external_dns 5354 in
       printf "[openvpn] executing %s\n%!" exec_cmd;
     lwt _ = Lwt_unix.system exec_cmd in 
     let _ = Unix.create_process "openvpn" 
@@ -286,14 +287,16 @@ module Manager = struct
     let exec_cmd =  
       (* nusty hack to know if you are running on a server or a client *)
       if ((Nodes.get_local_name ()) = "unknown" ) then
-        sprintf "%s d%d %s %s %s %s %s"
+        sprintf "%s d%d %s %s %s %s %s %s %d"
           cmd Config.signpost_number node Config.domain 
-          domain Config.conf_dir Config.tmp_dir  
+          domain Config.conf_dir Config.tmp_dir 
+          Config.external_dns 5354  
       else
-        sprintf "%s %s.d%d %s %s %s %s %s"
+        sprintf "%s %s.d%d %s %s %s %s %s %s %d"
           cmd  (Nodes.get_local_name ()) Config.signpost_number 
           node Config.domain domain Config.conf_dir 
-          Config.tmp_dir in
+          Config.tmp_dir Config.external_dns 5354
+    in
       printf "[openvpn] executing %s\n%!" exec_cmd;
       Lwt_unix.system exec_cmd  
         

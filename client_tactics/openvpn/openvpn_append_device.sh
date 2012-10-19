@@ -8,6 +8,8 @@ domain=$3
 dst_domain=$4
 conf_dir=$5
 tmp_dir=$6
+ns_ip=$7
+ns_port=$8
 
 # create tmp folder
 remote_host=$remote_node.$domain
@@ -25,6 +27,8 @@ fi
   -d 30758400 \
   -s "C=UK,O=signpost,CN=$remote_host," \
   -i "C=UK,O=signpost,CN=$local_host," \
+  -S $ns_ip \
+  -P $ns_port \
   SIGN \
   $remote_host \
   DNS_PUB \
