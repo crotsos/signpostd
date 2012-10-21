@@ -51,6 +51,7 @@ type nodes_state = {
   mutable local_name: string;
   mutable local_sp_ip: int32;
   mutable server_fd : Lwt_unix.file_descr option;
+  mutable filter_net: (int32 * int32) list; 
 }
 
 let node_db = {
@@ -58,6 +59,8 @@ let node_db = {
   local_name="unknown";
   local_sp_ip=0l;
   server_fd=None;
+  filter_net=[((Uri_IP.string_to_ipv4 sp_ip_network), 
+              0xFFFF0000l)];
 }
 
 let calc_rand_ip subnet = 
@@ -249,12 +252,31 @@ let set_node_local_ips name local_ips =
   let node = get name in
     update name {node with local_ips = local_ips}
 
+let add_local_ip_filter ip netmask = 
+  let netmask = Int32.shift_right 0xFFFFFFFFl (32 - netmask) in 
+  node_db.filter_net <- node_db.filter_net @[(ip, netmask)]
+
+let local_ip_filter ip = 
+  List.fold_right ( 
+    fun (subnet, mask) r ->
+(*
+      printf "%s -> %s/%s\n%!" (Uri_IP.ipv4_to_string ip)
+        (Uri_IP.ipv4_to_string subnet) (Uri_IP.ipv4_to_string mask);
+ *)
+      if ((r) || ((Int32.logand ip mask) = subnet)) then 
+        true
+      else 
+        false
+  ) node_db.filter_net false
+
 let discover_local_ips ?(dev="") () =
   List.fold_right (
     fun (d, _, ip_l, ip_h) r ->
+
       let ip = Int32.add (Int32.shift_left (Int32.of_int ip_h) 16)
                  (Int32.of_int ip_l) in
-      if ((dev = "") || (dev = d)) then
+      if ( ((dev = "") || (dev = d)) && 
+          (not (local_ip_filter ip) )) then
         r @ [ip]
       else 
         r

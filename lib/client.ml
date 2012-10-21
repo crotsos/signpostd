@@ -213,7 +213,7 @@ lwt _ =
       fun mgr _ _ -> 
         join [ 
          signal_t ~port:(Int64.of_int Config.signal_port) (client_t);
-         Monitor.monitor_t ();
+         (*Monitor.monitor_t ();*)
          dns_t ();
          Sp_controller.listen mgr; 
         ]

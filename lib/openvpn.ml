@@ -20,14 +20,12 @@ open Lwt_list
 open Printf
 
 module OP = Openflow.Ofpacket
-module OC = Openflow.Ofcontroller
 
 module Manager = struct
   exception OpenVpnError of string
   exception MissingOpenVPNArgumentError
 
   let tactic_priority = 4
-  
   
   (* local state of the tactic*)
   type conn_type = {
@@ -52,16 +50,13 @@ module Manager = struct
 
   let conn_db = {conns=(Hashtbl.create 0); can=None;fd=None;}
 
-
   (*
    * a helper function that waits until a newly installed dev
    * becomes available on openflow.
   * *)
   let rec get_port dev = 
     return (Net_cache.Port_cache.dev_to_port_id dev)
-(*      return (port)
-      | None -> raise (OpenVpnError((Printf.sprintf "Invalid port %s" dev))) *)
-(*           lwt _ = Lwt_unix.sleep 1.0 in (get_port dev) *)
+
 (*******************************************************
  *             Testing code 
  *******************************************************)
@@ -98,7 +93,7 @@ module Manager = struct
 (*
  * a udp client to send data. 
  * *)
-  let run_client port ips =
+  let run_client src_port port ips =
     let buf = String.create 1500 in
     let sock = Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM
               (Unix.getprotobyname "udp").Unix.p_proto in   
@@ -108,6 +103,15 @@ module Manager = struct
         lwt _ = Lwt_unix.sendto sock ip 0 
                   (String.length ip) [] portaddr in 
           return ()
+    in
+    let _ = 
+      try
+        (Lwt_unix.bind sock (Lwt_unix.ADDR_INET (Unix.inet_addr_any,
+        src_port)));
+        Lwt_unix.setsockopt sock Unix.SO_REUSEADDR true
+      with Unix.Unix_error (e, _, _) ->
+        printf "[openvpn] error: %s\n%!" (Unix.error_message e);
+        raise (OpenVpnError("Couldn't bind udp client fd"))
     in
     lwt _ = Lwt_list.iter_p (send_pkt_to port) ips in
      try_lwt 
@@ -153,8 +157,8 @@ module Manager = struct
         end
       (* code to send udp packets to the destination*)
       | "client" -> (
-          let port :: ips = args in 
-            lwt ip = run_client (int_of_string port) ips in
+          let src_port :: port :: ips = args in 
+            lwt ip = run_client (int_of_string src_port) (int_of_string port) ips in
               (printf "[openvpn] Received a reply from ip %s \n%!" ip);
               return (ip))
       | _ -> (
@@ -166,24 +170,7 @@ module Manager = struct
    * ************************************************************)
   let setup_flows dev mac_addr local_ip rem_ip local_sp_ip 
         remote_sp_ip = 
-    let controller = 
-      (List.hd Sp_controller.switch_data.Sp_controller.of_ctrl) in 
-    let dpid = 
-      (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
-
     (* outgoing flow configuration *)
-
-      (* Note: use constant and specific priority values for 
-       * tactic flow entries in order to be able to descriminate 
-       * tactics flow when two tactics cover the same tupple space 
-       * *)
-    let flow_wild = OP.Wildcards.({
-      in_port=true; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match flow_wild 
-                 ~dl_type:(0x0800) ~nw_dst:remote_sp_ip () in
     lwt port = get_port dev in 
     (*     let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in *)
     let actions = [ OP.Flow.Set_nw_src(local_ip);
@@ -192,39 +179,16 @@ module Manager = struct
                       (Net_cache.mac_of_string mac_addr));
                     OP.Flow.Output((OP.Port.port_of_int port), 
                                    2000);] in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:tactic_priority ~idle_timeout:0 ~hard_timeout:0 
-                ~buffer_id:(-1) actions () in 
-    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
-               (Lwt_bytes.create 4096) in
-    lwt _ = OC.send_of_data controller dpid bs in
-
-
+    lwt _ = Sp_controller.setup_flow ~dl_type:(Some(0x0800)) ~nw_dst_len:0 
+                 ~nw_dst:(Some(remote_sp_ip)) ~priority:tactic_priority 
+                 ~idle_timeout:0 ~hard_timeout:0 actions in    
+    
     (* setup arp handling for 10.3.0.0/24 *)
-    let arp_wild = OP.Wildcards.({
-      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 8); nw_src=(char_of_int 8);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match arp_wild
-                 ~in_port:(OP.Port.int_of_port OP.Port.Local) ~dl_type:0x0806
-                 ~nw_src:local_ip ~nw_dst:rem_ip () in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:tactic_priority ~idle_timeout:0  ~hard_timeout:0
-                ~buffer_id:(-1) [OP.Flow.Output((OP.Port.port_of_int port),2000)] () in 
-    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Lwt_bytes.create 4096) in
-    lwt _ = OC.send_of_data controller dpid bs in
-    let flow = OP.Match.create_flow_match arp_wild
-                 ~in_port:(port) ~dl_type:0x0806
-                 ~nw_src:local_ip ~nw_dst:rem_ip () in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:tactic_priority ~idle_timeout:0  ~hard_timeout:0
-                ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local,2000)] () in 
-    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Lwt_bytes.create 4096) in
-    lwt _ = OC.send_of_data controller dpid bs in
-
+    lwt _ = Sp_controller.setup_flow ~dl_type:(Some(0x0806)) ~in_port:(Some(port))
+                 ~nw_dst_len:8
+                 ~nw_src_len:8 ~nw_src:(Some(local_ip)) ~nw_dst:((Some(rem_ip))) 
+                 ~priority:tactic_priority ~idle_timeout:0 ~hard_timeout:0
+                 [OP.Flow.Output(OP.Port.Local,2000)] in
 
     (* get local mac address *)
     let ip_stream = 
@@ -236,24 +200,15 @@ module Manager = struct
     let mac = Net_cache.mac_of_string mac in 
     
     (* Setup incoming flow *)
-    let flow_wild = OP.Wildcards.({
-      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match flow_wild 
-                 ~in_port:port ~dl_type:(0x0800) 
-                 ~nw_dst:local_ip () in
     let actions = [ OP.Flow.Set_nw_dst(local_sp_ip);
                      OP.Flow.Set_nw_src(remote_sp_ip); 
                     OP.Flow.Set_dl_dst(mac);
                     OP.Flow.Output(OP.Port.Local, 2000);] in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:tactic_priority ~idle_timeout:0  
-                ~buffer_id:(-1) actions () in 
-    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
-               (Lwt_bytes.create 4096) in
-      OC.send_of_data controller dpid bs
+    lwt _ = Sp_controller.setup_flow ~in_port:(Some(port))
+              ~dl_type:(Some(0x0800)) ~nw_dst_len:0 
+                 ~nw_dst:(Some(local_ip)) ~priority:tactic_priority 
+                 ~idle_timeout:0 ~hard_timeout:0 actions in    
+      return ()
 
       
   let start_openvpn_daemon server_ip port node domain typ conn_id = 
@@ -340,93 +295,6 @@ module Manager = struct
              dev_id;nodes=[node ^ "." ^ Config.domain]; conn_id;rem_node;};
           return(dev_id) ) 
  
-  let setup_flows dev mac_addr local_ip rem_ip local_sp_ip 
-        remote_sp_ip = 
-    let controller = 
-      (List.hd Sp_controller.switch_data.Sp_controller.of_ctrl) in 
-    let dpid = 
-      (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
-
-    lwt port = get_port dev in
-(*     let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in *)
-    (* outgoing flow configuration *)
-
-      (* Note: use constant and specific priority values for 
-       * tactic flow entries in order to be able to descriminate 
-       * tactics flow when two tactics cover the same tupple space 
-       * *)
-    let flow_wild = OP.Wildcards.({
-      in_port=true; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match flow_wild 
-                 ~dl_type:(0x0800) ~nw_dst:remote_sp_ip () in
-    let actions = [ OP.Flow.Set_nw_src(local_ip);
-                    OP.Flow.Set_nw_dst(rem_ip);
-                    OP.Flow.Set_dl_dst(
-                      (Net_cache.mac_of_string mac_addr));
-                    OP.Flow.Output((OP.Port.port_of_int port), 
-                                   2000);] in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:tactic_priority ~idle_timeout:0 
-                ~buffer_id:(-1) actions () in 
-    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Lwt_bytes.create 4096) in
-    lwt _ = OC.send_of_data controller dpid bs in
-    (* setup arp handling for 10.3.0.0/24 *)
-    let arp_wild = OP.Wildcards.({ 
-      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 8); nw_src=(char_of_int 8);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match arp_wild
-                 ~in_port:(OP.Port.int_of_port OP.Port.Local) ~dl_type:0x0806
-                             ~nw_src:local_ip ~nw_dst:rem_ip () in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD
-                ~priority:tactic_priority ~idle_timeout:0
-                ~buffer_id:(-1) [OP.Flow.Output((OP.Port.port_of_int port),2000)] () in
-    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Lwt_bytes.create 4096) in
-      lwt _ = OC.send_of_data controller dpid bs in
-      let flow = OP.Match.create_flow_match arp_wild
-                   ~in_port:(port) ~dl_type:0x0806
-                               ~nw_src:local_ip ~nw_dst:rem_ip () in
-      let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD
-                  ~priority:tactic_priority ~idle_timeout:0
-                  ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local,2000)] () in
-      let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-                 (Lwt_bytes.create 4096) in
-        lwt _ = OC.send_of_data controller dpid bs in
-
-    (* get local mac address *)
-    let ip_stream = 
-      (Unix.open_process_in
-         (Config.dir^"/client_tactics/get_local_device br0")) in
-    let ips = Re_str.split (Re_str.regexp " ") 
-                (input_line ip_stream) in 
-    let _::mac::_ = ips in
-    let mac = Net_cache.mac_of_string mac in 
-    
-    (* Setup incoming flow *)
-    let flow_wild = OP.Wildcards.({
-      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match flow_wild 
-                 ~in_port:port ~dl_type:(0x0800) 
-                 ~nw_dst:local_ip () in
-    let actions = [ OP.Flow.Set_nw_dst(local_sp_ip);
-                     OP.Flow.Set_nw_src(remote_sp_ip); 
-                    OP.Flow.Set_dl_dst(mac);
-                    OP.Flow.Output(OP.Port.Local, 2000);] in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:tactic_priority ~idle_timeout:0  
-                ~buffer_id:(-1) actions () in 
-    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Lwt_bytes.create 4096) in
-      OC.send_of_data controller dpid bs
 
   cstruct arp {
     uint8_t dst[6];
@@ -460,10 +328,9 @@ module Manager = struct
  
 
   let send_gratuitous_arp local_ip = 
-    let controller = 
-      (List.hd Sp_controller.switch_data.Sp_controller.of_ctrl) in 
-    let dpid = 
-      (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
+    let controller = Sp_controller.get_ctrl () in 
+    let dpid = Sp_controller.get_dpid ()  in
+
     let nw_src = Uri_IP.string_to_ipv4 local_ip in
     let ip_stream = (Unix.open_process_in
                        (Config.dir ^ 
@@ -474,15 +341,9 @@ module Manager = struct
     let dl_src = Net_cache.mac_of_string dl_src in
     let data = OP.marshal_and_sub (create_gratituous_arp dl_src nw_src) 
                  (Lwt_bytes.create 512) in
-    let pkt = 
-          OP.Packet_out.create ~buffer_id:(-1l) 
-            ~actions:[ OP.(Flow.Output(Port.All , 2000))] 
-            ~data:data ~in_port:OP.Port.No_port () 
-    in
-    let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out pkt) 
-               (Lwt_bytes.create 4096)  in 
-      OC.send_of_data controller dpid bs
-       
+    lwt pkt = Sp_controller.send_packet data [ OP.(Flow.Output(Port.All , 2000))] in
+      return ()
+
   let connect kind args =
     match kind with
     | "server" ->(
@@ -560,46 +421,21 @@ module Manager = struct
   (* tearing down the flow that push traffic over the tunnel 
    * *)
   let unset_flows dev local_tun_ip remote_sp_ip = 
-    let controller = 
-      (List.hd Sp_controller.switch_data.Sp_controller.of_ctrl) in 
-    let dpid = 
-      (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
+    let controller = Sp_controller.get_ctrl () in 
+    let dpid = Sp_controller.get_dpid ()  in
 
     lwt port = get_port dev in 
 (*     let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in *)
 
     (* outgoing flow removal *)
-    let flow_wild = OP.Wildcards.({
-      in_port=true; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match flow_wild 
-                 ~dl_type:(0x0800) ~nw_dst:remote_sp_ip () in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.DELETE_STRICT 
-                ~priority:tactic_priority ~idle_timeout:0 
-                ~buffer_id:(-1) [] () in 
-    lwt _ = OC.send_of_data controller dpid
-      (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-          (Lwt_bytes.create 4096)) in
-      
+    lwt _ = Sp_controller.delete_flow ~dl_type:(Some(0x0800))
+             ~nw_dst_len:0 ~nw_dst:(Some(remote_sp_ip)) ~priority:tactic_priority 
+             () in  
     (* Setup incoming flow *)
 (*     let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in *)
-    let flow_wild = OP.Wildcards.({
-      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match flow_wild 
-                 ~in_port:port ~dl_type:(0x0800) 
-                 ~nw_dst:local_tun_ip () in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.DELETE_STRICT
-                ~priority:tactic_priority ~idle_timeout:0  
-                ~buffer_id:(-1) [] () in 
-      OC.send_of_data controller dpid 
-        (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-           (Lwt_bytes.create 4096))
-
+    lwt _ = Sp_controller.delete_flow ~in_port:(Some(port)) ~dl_type:(Some(0x0800))
+             ~nw_dst_len:0 ~nw_dst:(Some(local_tun_ip)) ~priority:tactic_priority () in  
+      return ()
   let teardown kind args = 
     match kind with
       | "teardown" ->

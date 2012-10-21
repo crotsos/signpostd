@@ -154,10 +154,8 @@ module Manager = struct
   
   let setup_flows dev mac_addr local_ip rem_ip local_sp_ip 
         remote_sp_ip = 
-    let controller = 
-      (List.hd Sp_controller.switch_data.Sp_controller.of_ctrl) in 
-    let dpid = 
-      (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
+    let controller = Sp_controller.get_ctrl () in 
+    let dpid = Sp_controller.get_dpid ()  in
 
     let port = Net_cache.Port_cache.dev_to_port_id dev in
     (* outgoing flow configuration *)
@@ -238,10 +236,8 @@ module Manager = struct
   (* tearing down the flow that push traffic over the tunnel 
    * *)
   let unset_flows dev local_tun_ip remote_sp_ip = 
-    let controller = 
-      (List.hd Sp_controller.switch_data.Sp_controller.of_ctrl) in 
-    let dpid = 
-      (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
+    let controller = Sp_controller.get_ctrl () in 
+    let dpid = Sp_controller.get_dpid ()  in
 
     (* outgoing flow removal *)
     let flow_wild = OP.Wildcards.({

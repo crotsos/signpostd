@@ -31,6 +31,7 @@ val wake_up_thread_with_reply : id -> t -> unit Lwt.t
 val get_local_name : unit -> string
 val set_local_name : string -> unit
 val discover_local_ips : ?dev:string -> unit -> int32 list
+val add_local_ip_filter : int32 -> int -> unit
 val set_local_sp_ip: int32 -> unit
 val get_local_sp_ip: unit -> int32
 

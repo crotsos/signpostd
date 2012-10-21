@@ -42,8 +42,8 @@ type pkt_in_cb_struct = {
 type switch_state = {
 (*   mutable mac_cache: (mac_switch, OP.Port.t) Hashtbl.t; *)
   mutable mac_cache: (OP.eaddr, OP.Port.t) Hashtbl.t; 
-  mutable dpid: OP.datapath_id list;
-  mutable of_ctrl: OC.t list;
+  mutable dpid: OP.datapath_id;
+  mutable of_ctrl: OC.t option;
   mutable pkt_in_cb_cache : pkt_in_cb_struct list;
   cb_register : (OP.Match.t, (OC.t -> OP.datapath_id -> 
                    OE.e -> unit Lwt.t) ) Hashtbl.t;
@@ -53,13 +53,18 @@ let resolve t = Lwt.on_success t (fun _ -> ())
 let pp = Printf.printf
 let sp = Printf.sprintf
 
-let switch_data = { mac_cache = Hashtbl.create 0;
-                    dpid = []; 
-                    of_ctrl = [];
-                    pkt_in_cb_cache = [];
-                    cb_register = (Hashtbl.create 64);
-                  } 
+let switch_data = { 
+  mac_cache = Hashtbl.create 0;
+  dpid = 0L; of_ctrl =None;
+  pkt_in_cb_cache = [];
+  cb_register = (Hashtbl.create 64);
+} 
 
+let get_ctrl () = 
+  match switch_data.of_ctrl with
+    | Some(v) -> v
+    | None -> raise Not_found
+let get_dpid () = switch_data.dpid 
 let preinstall_flows controller dpid port_id = 
   (* A few rules to reduce load on the control channel *)
   let flow_wild = OP.Wildcards.({
@@ -262,8 +267,109 @@ let datapath_join_cb controller dpid evt =
                 dpid (OP.Port.port_of_int port.OP.Port.port_no))
             | _ -> ()
     ) ports;(*   lwt _ = preinstall_flows controller dpid OP.Port.Local ([]) in  *)
-  switch_data.dpid <- switch_data.dpid @ [dp];
+  switch_data.dpid <- dp;
   return (pp "+ datapath:0x%012Lx\n%!" dp)
+
+let is_none = function
+  | None -> true
+  | _ -> false
+
+let option_default value default =
+  match value with
+    | None -> default
+    |Some(v) -> v
+
+
+let send_packet ?(in_port=OP.Port.No_port) ?(buffer_id=(-1l)) 
+      data actions = 
+    let controller = 
+      match switch_data.of_ctrl with
+        | None -> failwith "controller not connected"
+        |Some (of_ctrl) -> of_ctrl
+    in
+    let pkt = 
+          OP.Packet_out.create ~buffer_id ~actions
+            ~data ~in_port () in
+    let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out pkt) 
+               (Lwt_bytes.create 4096)  in 
+      OC.send_of_data controller switch_data.dpid  bs
+
+
+let delete_flow ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) ?(dl_dst=None)
+      ?(dl_type=None) ?(nw_proto=None) ?(tp_dst=None) ?(tp_src=None)
+      ?(nw_dst=None) ?(nw_dst_len=32) ?(nw_src=None) ?(nw_src_len=32)
+      ?(dl_vlan_pcp=None) ?(nw_tos=None) ?(priority=0) () =
+  let controller = 
+    match switch_data.of_ctrl with
+      | None -> failwith "controller not connected"
+      |Some (of_ctrl) -> of_ctrl
+  in
+  let flow_wild = OP.Wildcards.({
+    in_port=(is_none in_port); dl_vlan=(is_none dl_vlan); 
+    dl_src=(is_none dl_src); dl_dst=(is_none dl_dst);
+    dl_type=(is_none dl_type); nw_proto=(is_none nw_proto); 
+    tp_dst=(is_none tp_dst); tp_src=(is_none tp_src);
+    nw_dst=(char_of_int nw_dst_len); nw_src=(char_of_int nw_src_len);
+    dl_vlan_pcp=(is_none dl_vlan_pcp); nw_tos=(is_none nw_tos);}) in
+
+  let flow = OP.Match.create_flow_match flow_wild 
+               ~in_port:(option_default in_port 0)
+               ~dl_src:(option_default dl_src "\x00\x00\x00\x00\x00\x00")
+               ~dl_dst:(option_default dl_dst "\x00\x00\x00\x00\x00\x00")
+               ~dl_vlan:(option_default dl_vlan 0xffff)
+               ~dl_vlan_pcp:(option_default dl_vlan_pcp (char_of_int 0))
+               ~dl_type:(option_default dl_type 0)
+               ~nw_tos:(option_default nw_tos (char_of_int 0))
+               ~nw_proto:(option_default nw_proto (char_of_int 0))
+               ~nw_src:(option_default nw_src 0l)
+               ~nw_dst:(option_default nw_dst 0l)
+               ~tp_src:(option_default tp_src 0)
+               ~tp_dst:(option_default tp_dst 0) () in 
+  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.DELETE_STRICT 
+              ~priority [] () in 
+  lwt _ = OC.send_of_data controller switch_data.dpid 
+            (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+               (Lwt_bytes.create 4096)) in 
+          return()
+
+let setup_flow ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) ?(dl_dst=None)
+      ?(dl_type=None) ?(nw_proto=None) ?(tp_dst=None) ?(tp_src=None)
+      ?(nw_dst=None) ?(nw_dst_len=32) ?(nw_src=None) ?(nw_src_len=32)
+      ?(dl_vlan_pcp=None) ?(nw_tos=None) ?(priority=0) ?(buffer_id=(-1)) 
+      ?(idle_timeout=0) ?(hard_timeout=0) actions =
+  let controller = 
+    match switch_data.of_ctrl with
+      | None -> failwith "controller not connected"
+      |Some (of_ctrl) -> of_ctrl
+  in
+  let flow_wild = OP.Wildcards.({
+    in_port=(is_none in_port); dl_vlan=(is_none dl_vlan); 
+    dl_src=(is_none dl_src); dl_dst=(is_none dl_dst);
+    dl_type=(is_none dl_type); nw_proto=(is_none nw_proto); 
+    tp_dst=(is_none tp_dst); tp_src=(is_none tp_src);
+    nw_dst=(char_of_int nw_dst_len); nw_src=(char_of_int nw_src_len);
+    dl_vlan_pcp=(is_none dl_vlan_pcp); nw_tos=(is_none nw_tos);}) in
+
+  let flow = OP.Match.create_flow_match flow_wild 
+               ~in_port:(option_default in_port 0)
+               ~dl_src:(option_default dl_src "\x00\x00\x00\x00\x00\x00")
+               ~dl_dst:(option_default dl_dst "\x00\x00\x00\x00\x00\x00")
+               ~dl_vlan:(option_default dl_vlan 0xffff)
+               ~dl_vlan_pcp:(option_default dl_vlan_pcp (char_of_int 0))
+               ~dl_type:(option_default dl_type 0)
+               ~nw_tos:(option_default nw_tos (char_of_int 0))
+               ~nw_proto:(option_default nw_proto (char_of_int 0))
+               ~nw_src:(option_default nw_src 0l)
+               ~nw_dst:(option_default nw_dst 0l)
+               ~tp_src:(option_default tp_src 0)
+               ~tp_dst:(option_default tp_dst 0) () in 
+  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
+              ~priority ~idle_timeout ~hard_timeout ~buffer_id actions () in 
+  lwt _ = OC.send_of_data controller switch_data.dpid 
+            (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+               (Lwt_bytes.create 4096)) in 
+    return()
+
 
 let port_status_cb controller dpid evt =
   let _ = 
@@ -292,8 +398,12 @@ let port_status_cb controller dpid evt =
 let req_count = (ref 0)
 
 let register_handler flow cb =
-  let controller = (List.hd switch_data.of_ctrl) in 
-  let dpid = (List.hd switch_data.dpid)  in          
+  let controller = 
+    match switch_data.of_ctrl with 
+      | None -> failwith "controller not yet connected"
+      | Some(v) -> v
+  in 
+  let dpid = switch_data.dpid  in          
  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
               ~idle_timeout:0 ~hard_timeout:0
              ~buffer_id:(-1) ~priority:100
@@ -403,11 +513,10 @@ let packet_in_cb controller dpid evt =
       | None -> switch_packet_in_cb controller dpid  buffer_id m data in_port
 
 let init controller = 
-  if (not (List.mem controller switch_data.of_ctrl)) then
-    switch_data.of_ctrl <- (([controller] @ switch_data.of_ctrl));
-  OC.register_cb controller OE.DATAPATH_JOIN datapath_join_cb;
-  OC.register_cb controller OE.PACKET_IN packet_in_cb;
-  OC.register_cb controller OE.PORT_STATUS_CHANGE port_status_cb
+  let _ = switch_data.of_ctrl <- Some(controller) in 
+  let _ = OC.register_cb controller OE.DATAPATH_JOIN datapath_join_cb in 
+  let _ = OC.register_cb controller OE.PACKET_IN packet_in_cb in 
+    OC.register_cb controller OE.PORT_STATUS_CHANGE port_status_cb
 
 let add_dev dev ip netmask =
   lwt _ = Lwt_unix.system ("ovs-vsctl add-port br0 " ^ dev) in 

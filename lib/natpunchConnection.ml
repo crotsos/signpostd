@@ -194,10 +194,8 @@ let handle_notification _ method_name arg_list =
           let port = 
             OP.Port.port_of_int
               (Net_cache.Port_cache.dev_to_port_id Config.net_intf) in 
-          let controller = (List.hd 
-                  Sp_controller.switch_data.Sp_controller.of_ctrl) in 
-          let dpid = (List.hd 
-                  Sp_controller.switch_data.Sp_controller.dpid)  in         
+          let controller = Sp_controller.get_ctrl () in 
+          let dpid = Sp_controller.get_dpid ()  in
           let [ip_a; ip_b] = 
             List.map 
               (fun a ->

@@ -437,10 +437,8 @@ module Manager = struct
             Hashtbl.replace natpanch_state.conns  node
               {name=node;public_ip=dst_ip; sp_ip=remote_sp_ip; conn_id=0;};
           let isn = Int32.of_string isn in
-          let controller = (List.hd 
-                  Sp_controller.switch_data.Sp_controller.of_ctrl) in 
-          let dpid = (List.hd 
-                  Sp_controller.switch_data.Sp_controller.dpid)  in          
+          let controller = Sp_controller.get_ctrl () in 
+          let dpid = Sp_controller.get_dpid ()  in
           
           let local_ip = Net_cache.Routing.get_next_hop_local_ip dst_ip in 
           let Some(local_mac) = (Net_cache.Arp_cache.mac_of_ip local_ip) in 

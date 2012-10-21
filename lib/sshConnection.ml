@@ -324,10 +324,8 @@ let connect a b =
  * *)
 
 let setup_cloud_flows a_dev b_dev a_tun_ip b_tun_ip = 
-  let controller = (List.hd Sp_controller.
-                    switch_data.Sp_controller.of_ctrl) in 
-  let dpid = 
-    (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
+  let controller = Sp_controller.get_ctrl () in 
+  let dpid = Sp_controller.get_dpid ()  in
   let [a_port; b_port] = 
     List.map ( 
       fun dev -> Net_cache.Port_cache.dev_to_port_id (Printf.sprintf "tap%d" dev)) 
@@ -430,10 +428,8 @@ let disable_cloud_ssh conn a b =
       if (conn.direction = 3) then (
         let q_a = sprintf "%s.d%d" a Config.signpost_number in 
         let a_tun_ip = get_tactic_ip conn q_a in
-        let controller = (List.hd Sp_controller.
-                          switch_data.Sp_controller.of_ctrl) in 
-        let dpid = 
-          (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
+        let controller = Sp_controller.get_ctrl () in 
+        let dpid = Sp_controller.get_dpid ()  in
   
         let flow_wild = OP.Wildcards.({
           in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
@@ -468,7 +464,6 @@ let disable a b =
  * *)
 let teardown a b =
   return true
-
 
 (* ******************************************
  * A tactic to setup a layer 2 ssh tunnel

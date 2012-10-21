@@ -258,11 +258,8 @@ module Manager = struct
 
   let setup_flows dev mac_addr local_ip rem_ip local_sp_ip 
         remote_sp_ip = 
-
-    let controller = (List.hd Sp_controller.
-                      switch_data.Sp_controller.of_ctrl) in 
-    let dpid = 
-      (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
+    let controller = Sp_controller.get_ctrl () in 
+    let dpid = Sp_controller.get_dpid ()  in
 
     let flow_wild = OP.Wildcards.({
       in_port=true; dl_vlan=true; dl_src=true; dl_dst=true;
@@ -360,10 +357,8 @@ module Manager = struct
  * *)
   let setup_flows dev mac_addr local_ip rem_ip local_sp_ip 
         remote_sp_ip = 
-    let controller = (List.hd Sp_controller.
-                      switch_data.Sp_controller.of_ctrl) in 
-    let dpid = 
-      (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
+    let controller = Sp_controller.get_ctrl () in 
+    let dpid = Sp_controller.get_dpid ()  in
 
     let flow_wild = OP.Wildcards.({
       in_port=true; dl_vlan=true; dl_src=true; dl_dst=true;
@@ -456,10 +451,8 @@ module Manager = struct
  * tunnel disabling code
  * *)
   let unset_flows dev local_tun_ip remote_sp_ip = 
-    let controller = (List.hd Sp_controller.
-                      switch_data.Sp_controller.of_ctrl) in 
-    let dpid = 
-      (List.hd Sp_controller.switch_data.Sp_controller.dpid)  in
+    let controller = Sp_controller.get_ctrl () in 
+    let dpid = Sp_controller.get_dpid ()  in
 
     let flow_wild = OP.Wildcards.({
       in_port=true; dl_vlan=true; dl_src=true; dl_dst=true;
