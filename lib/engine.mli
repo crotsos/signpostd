@@ -21,7 +21,7 @@ open Sp_rpc
  *  a link between them, and will immediately return with all
  *  known existing links
  *)
-val find : Sp.name -> Sp.name -> Sp.addressable Lwt.t
+val find : Sp.name -> Sp.name -> int32 option Lwt.t
 
 val tactic_by_name : tactic_name -> (module Sp.TacticSig) option
 val connect_using_tactic : string -> string -> string -> bool Lwt.t

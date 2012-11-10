@@ -207,26 +207,26 @@ let find a b =
           let waiter, wakener = Lwt.task () in 
           let _ = Lwt.ignore_result(connect wakener a b) in
           lwt res = waiter in 
-          let ret = Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b) in
+          let ret = Nodes.get_node_sp_ip b in
             (match res with
-              | true -> return (Sp.IPAddressInstance(ret)) 
-              | false -> return (Sp.Unreachable) ))
+              | true -> return (Some(ret)) 
+              | false -> return (None)))
         | Connections.SUCCESS_ACTIVE -> 
-            return(Sp.IPAddressInstance(
-              (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b))))
+            let ip = Nodes.get_node_sp_ip b in
+            return(Some(ip))
         end 
-      | PROCESSING -> 
+      | PROCESSING -> begin 
           Printf.printf "[engine] waiting for tactic\n%!";
           lwt res = Connections.wait_for_link a b in
-            (match res with
+            match res with
               | Connections.SUCCESS_ACTIVE -> 
-            return(Sp.IPAddressInstance(
-              (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b))))
-              | _ ->return (Sp.Unreachable) )
-
+                  let ip = Nodes.get_node_sp_ip b in
+                    return(Some(ip))
+              | _ ->return (None)
+        end
   with _ ->
     Printf.printf "[Nodes] cannot find node %s \n%!" b;
-    return(Sp.Unreachable)
+    return(None)
 
 let disconnect a b tactic =
     match (Connections.get_tactic_status a b tactic) with
