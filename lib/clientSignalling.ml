@@ -23,17 +23,6 @@ open Uri_IP
 
 exception Tactic_error of string
 
-
-let execute_tactic cmd arg_list =
-  let open Lwt_process in
-  let command = Unix.getcwd () ^ "/client_tactics/" ^ cmd in
-  let args = String.concat " " arg_list in
-  let full_command = command ^ " " ^ args in
-  eprintf "Executing RPC '%s'.\n%!" full_command;
-  let cmd = shell full_command in
-  pread ~timeout:120.0 cmd >>= fun value ->
-  return (Sp.ResponseValue value)
-
 let connect_client ip port =
   try_lwt 
     let client_sock = socket PF_INET SOCK_STREAM 0 in
@@ -54,16 +43,16 @@ let connect_client ip port =
     eprintf "[signal] tcp client error:%s\n%!" (Printexc.to_string exn);
     return false
 
-let handle_request fd ip command arg_list =
+let handle_request _ command arg_list =
   match command with
   | Command("test_nat") ->
       let ip::port::_ = arg_list in
       lwt res = connect_client ip (int_of_string port) in 
         return (Sp.ResponseValue (string_of_bool res))
-  | Command(command_name) -> 
-      eprintf "REQUEST %s with args %s\n%!" 
-          command_name (String.concat ", " arg_list);
-      execute_tactic command_name arg_list
+  | Command c -> 
+      let _ = eprintf "REQUEST %s with args %s\n%!" 
+          c (String.concat ", " arg_list) in 
+        return Sp.NoResponse 
   | TacticCommand(tactic_name, action, method_name) ->
       match Engine.tactic_by_name tactic_name with
       | Some(t) ->
@@ -76,11 +65,12 @@ let handle_request fd ip command arg_list =
               tactic_name;
           return Sp.NoResponse
 
-let handle_notification fd ip command arg_list =
+let handle_notification _ command arg_list =
   match command with
   | Command("setup_sp_ip") -> 
       let ip = List.hd arg_list in
       let _ = Nodes.set_local_sp_ip (Uri_IP.string_to_ipv4 ip) in
+        (* TODO make this libnl *)
       let gw_ip = ipv4_to_string 
                     (Int32.add (string_to_ipv4 ip) 1l) in 
       lwt _ = Lwt_unix.system 
@@ -92,11 +82,10 @@ let handle_notification fd ip command arg_list =
                 (Printf.sprintf "route add -net %s/%d gw %s" 
                    Nodes.sp_ip_network Nodes.sp_ip_netmask gw_ip) in
         return ()  
-    | Command(command_name) -> 
-      eprintf "NOTIFICATION: %s with args %s\n%!" 
-          command_name (String.concat ", " arg_list);
-      lwt _ = execute_tactic command_name arg_list in
-      return ()
+  | Command c -> 
+      let _ = eprintf "NOTIFICATION: %s with args %s\n%!" 
+          c (String.concat ", " arg_list) in 
+        return () 
   | TacticCommand(tactic_name, action, method_name) ->
       match Engine.tactic_by_name tactic_name with
       | Some(t) ->

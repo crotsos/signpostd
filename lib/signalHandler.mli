@@ -14,24 +14,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-type sp_msg = {
-  src_ip : int32;
-  src_port : int;
-  cmd : Sp_rpc.t option;
-}
-
-val echo_port: int64
+val echo_port: int
 
 module type HandlerSig = sig
-  val handle_request : Lwt_unix.file_descr -> int32 ->  Sp_rpc.command ->
+  val handle_request : Lwt_unix.file_descr -> Sp_rpc.command ->
     Sp_rpc.arg list -> Sp.request_response Lwt.t
-  val handle_notification : Lwt_unix.file_descr -> int32 -> 
+  val handle_notification : Lwt_unix.file_descr ->  
     Sp_rpc.command -> Sp_rpc.arg list -> unit Lwt.t
 end
 
 module type Functor = sig
-  val thread_client : address:Sp.ip -> port:Sp.port -> (unit -> unit Lwt.t) -> unit Lwt.t 
-  val thread_server : address:Sp.ip -> port:Sp.port -> unit Lwt.t
+  val thread_client : address:Sp.ip -> port:int -> 
+    (unit -> unit Lwt.t) -> unit Lwt.t 
+  val thread_server : address:Sp.ip -> port:int -> unit Lwt.t
 end
 
 module Make (Handler : HandlerSig) : Functor 
