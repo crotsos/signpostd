@@ -15,24 +15,23 @@
  *)
 
 open Dns.Operators
+open Dns.Packet
+open Dns.Query 
+
 open Lwt
 open Printf
-open Int64
 open Re_str
 open Sp_rpc
 
-module DP = Dns.Packet
 module IncomingSignalling = SignalHandler.Make (ClientSignalling)
-
 
 let our_domain = sprintf "d%d.%s" Config.signpost_number Config.domain
 let node_name = ref "unknown"
 let node_ip = ref "unknown"
-let node_port = ref (of_int 0)
+let node_port = ref 0
 let local_ips = ref []
-let ns_fd = (Lwt_unix.(socket PF_INET SOCK_DGRAM 0))
-let sp_fd = (Lwt_unix.(socket PF_INET SOCK_DGRAM 0))
-let ns_fd_bind = ref true
+  
+let dns_domain = split (regexp_string ".") our_domain
 
 let usage () = eprintf "Usage: %s <node-name> <node-ip> <node-signalling-port>\n%!" Sys.argv.(0); exit 1
 
@@ -47,122 +46,81 @@ let rec compareVs v1 v2 = match v1, v2 with
         (false, [])
 
 let nxdomain =
-  {Dns.Query.rcode=DP.NXDomain; aa=false; answer=[]; authority=[]; additional=[]}
+  {Dns.Query.rcode=NXDomain; aa=false; 
+   answer=[]; authority=[]; additional=[]}
 
 let register_mobile_host name = 
   let args = [!node_name; name] in
   let rpc = create_notification "register_mobile_host" args in
       Nodes.send_to_server rpc
 
-let bind_ns_fd () =
-  if (!ns_fd_bind) then (
-    let src = Unix.ADDR_INET(Unix.inet_addr_any, 25000) in 
-      ns_fd_bind := false;
-    Lwt_unix.bind ns_fd src;
-    let src = Unix.ADDR_INET(Unix.inet_addr_any, 25001) in 
-      Lwt_unix.bind sp_fd src;)
-    else ()
+let sp_rr_to_packet rr name = 
+  let ans = 
+    {name; cls=RR_IN; ttl=60l; 
+     rdata=rr.rdata;} in 
+    {rcode=NoError; aa=true; 
+     answer=[ans]; authority=[];
+     additional=[];}
 
-let forward_dns_query_to_ns packet _ = 
-  let buf = Lwt_bytes.create 4096 in
-  let data = DP.marshal buf packet in
-  let dst =
-    Lwt_unix.ADDR_INET((Unix.inet_addr_of_string Config.ns_server), 53) 
-  in
-  lwt _ = Lwt_bytes.sendto ns_fd data 0 (Cstruct.len data) [] dst in
+let forward_dns_query_to_ns resolv q = 
+  try_lwt
+    lwt p = Dns_resolver.resolve resolv ~dnssec:false 
+              q.q_class q.q_type q.q_name in
+      match p.answers with 
+        | ans::_ -> return (sp_rr_to_packet ans q.q_name)
+        | [] -> return (nxdomain)
   
-  let buflen = 1514 in
-  let buf = Lwt_bytes.create buflen in 
-  lwt (len, _) = Lwt_bytes.recvfrom ns_fd buf 0 buflen [] in 
-  let names = Hashtbl.create 8 in 
-  let reply = DP.parse names buf in
-  let q_reply =
-    let module DQ = Dns.Query in
-    let rcode = DP.(reply.detail.rcode) in
-    let aa = DP.(reply.detail.aa) in
-    DQ.({ rcode; aa;
-          answer = reply.DP.answers;
-          authority = reply.DP.authorities;
-          additional = reply.DP.additionals;
-        })
-  in
-  return (Some q_reply)
+  with ex -> 
+    return (nxdomain) 
 
-let sp_gethostbyname name =
-  DP.(
-    let domain = Dns.Name.string_to_domain_name name in
-    lwt t = Dns_resolver.create 
-              ~config:(`Static([Config.external_ip,Config.dns_port], [""]) ) () in 
-    lwt r = Dns_resolver.resolve t Q_IN Q_A domain in
-       return (r.answers ||> (fun x -> match x.rdata with
-                                | DP.A ip -> Some ip
-                                | _ -> None
-       )
-        |> List.fold_left (fun a -> function Some x -> x :: a | None -> a) []
-        |> List.rev
-       ))
-
-
-let forward_dns_query_to_sp _ dst q = 
-  let module DP = Dns.Packet in
-  let module DQ = Dns.Query in
+let forward_dns_query_to_sp st dst q = 
   (* Normalise the domain names to lower case *)
-(*   let dst = String.lowercase (List.hd (List.rev q.DP.q_name)) in *)
   let src = !node_name in 
-  let host = (Printf.sprintf "%s.%s.%s" dst src our_domain) in  
-  lwt src_ip = 
-(*
-      Dns_resolver.gethostbyname
-        ~server:Config.external_ip ~dns_port:Config.dns_port host
- *)
-    sp_gethostbyname host
-  in
-  match src_ip with
-    | [] ->
-        return(Some(nxdomain))
-    | src_ip::_ -> 
-        return(Some(DQ.({rcode=DP.NoError; aa=true;
-                  answer=[
-                    DP.({name=q.DP.q_name; cls=RR_IN;
-                         ttl=60l; rdata=A(src_ip);})];
-                     authority=[]; additional=[];}) ))
+  let host = dst::src::dns_domain in
+  lwt res = Sec.resolve st q.q_class q.q_type host in 
+    match res with
+      | Sec.Signed(res::_) -> 
+          return (sp_rr_to_packet res (dst::dns_domain))
+      | _ -> return(nxdomain)
 
   (* Figure out the response from a query packet and its question section *)
-let get_response packet q = 
-  let open Dns.Packet in
-  let module DQ = Dns.Query in
-  bind_ns_fd ();
+let get_response resolv st q = 
   let qnames = List.map String.lowercase q.q_name in
   eprintf "Q: %s\n%!" (String.concat " " qnames);
-  let domain = Re_str.(split (regexp_string ".") our_domain) in 
-  match (compareVs (List.rev qnames) (List.rev domain)) with
+  match (compareVs (List.rev qnames) (List.rev dns_domain)) with
     | (false, _) 
-    | (true, []) ->
-        forward_dns_query_to_ns packet q 
+    | (true, []) -> forward_dns_query_to_ns resolv q 
     | (true, src) when ((List.length src) = 1)-> 
         printf "Forward to sp %s\n%!" (String.concat "." src) ;
-        forward_dns_query_to_sp packet (List.hd src) q
+        forward_dns_query_to_sp st (List.hd src) q
     | (true, src)  when ((List.length src) = 2) ->
-        printf "Forward to sp mobile client %s\n%!" (String.concat "." src) ;
-        lwt ret = forward_dns_query_to_sp packet (List.hd src) q in 
+        printf "sp mobile client %s\n%!" (String.concat "." src) ;
+        lwt ret = forward_dns_query_to_sp st (List.hd src) q in 
         let _ = Lwt.ignore_result (register_mobile_host (List.nth src 1)) in 
           return (ret)
     | (_, _) -> failwith "XXX Error\n%!"
 
-
-let dnsfn ~src ~dst packet =
-  let open Dns.Packet in
+let dnsfn resolv st ~src ~dst packet =
   match packet.questions with
     | [] -> eprintf "bad dns query: no questions\n%!"; return None
-    | [q] -> (get_response packet q )
-    | _ -> eprintf "dns dns query: multiple questions\n%!"; return None
+    | q::_ -> 
+        lwt ret = get_response resolv st q in
+          return (Some ret)
 
 let dns_t () =
+  (* setup default resovler for the rest *)
+  lwt resolv = Dns_resolver.create () in
+  (* setup resolver for the signpost *)
+  let config = `Static([Config.external_ip,Config.dns_port], []) in
+  lwt t = Dns_resolver.create ~config () in 
+  lwt st = Sec.init_dnssec ~resolver:(Some(t)) () in
+
+  (* local nameserver *)
   lwt fd, src = Dns_server.bind_fd ~address:"0.0.0.0" ~port:53 in
-    Dns_server.listen ~fd ~src ~dnsfn 
+    Dns_server.listen ~fd ~src ~dnsfn:(dnsfn resolv st)
 
 let get_hello_rpc ips =
-  let string_port = (string_of_int (to_int !node_port)) in
+  let string_port = (string_of_int !node_port) in
   let ips = List.map Uri_IP.ipv4_to_string ips in 
   let ip_stream = (Unix.open_process_in
                      (Config.dir ^ 
@@ -170,7 +128,6 @@ let get_hello_rpc ips =
   let test = Re_str.split (Re_str.regexp " ") 
               (input_line ip_stream) in 
   let _::mac::_ = test in
-(*   let mac = Net_cache.Arp_cache.mac_of_string mac in  *)
   let args = [!node_name; !node_ip; string_port; mac;] @ ips in
     create_notification "hello" args
 
@@ -199,20 +156,18 @@ let client_t () =
     printf "[client] Error: %s\n%!" (Printexc.to_string exn); 
     return ()
 
-let signal_t  ~port =
+let signal_t ~port =
   IncomingSignalling.thread_client ~address:Config.external_ip ~port
 
 lwt _ =
   (try node_name := Sys.argv.(1) with _ -> usage ());
-(*    Lwt_engine.set (new Lwt_engine.select); *)
   Nodes.set_local_name !node_name;
   (try node_ip := Sys.argv.(2) with _ -> usage ());
-  (try node_port := (of_int (int_of_string Sys.argv.(3))) with _ -> usage ());
-(*   lwt _ = waiter_connect in  *)
+  (try node_port := (int_of_string Sys.argv.(3)) with _ -> usage ());
     Net.Manager.create (
       fun mgr _ _ -> 
         join [ 
-         signal_t ~port:(Int64.of_int Config.signal_port) (client_t);
+         signal_t ~port:Config.signal_port (client_t);
          (*Monitor.monitor_t ();*)
          dns_t ();
          Sp_controller.listen mgr; 
