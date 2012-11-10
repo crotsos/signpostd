@@ -142,7 +142,9 @@ let get_link_active_tactic a b =
     None
 
 let dump_tunnels () = 
-  let file = "/var/www/tunnels.json" in 
+  let file = 
+    "/home/ubuntu/SignpostDemo/SignpostDemoWeb/signpost-sigcomm-connections-live.json" 
+  in 
   let out = [] in 
   let res = Hashtbl.fold 
               (fun k v r ->
