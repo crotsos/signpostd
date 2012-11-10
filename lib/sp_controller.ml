@@ -370,7 +370,6 @@ let setup_flow ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) ?(dl_dst=None)
                (Lwt_bytes.create 4096)) in 
     return()
 
-
 let port_status_cb controller dpid evt =
   let _ = 
     match evt with

@@ -324,39 +324,24 @@ let connect a b =
  * *)
 
 let setup_cloud_flows a_dev b_dev a_tun_ip b_tun_ip = 
-  let controller = Sp_controller.get_ctrl () in 
-  let dpid = Sp_controller.get_dpid ()  in
   let [a_port; b_port] = 
     List.map ( 
       fun dev -> Net_cache.Port_cache.dev_to_port_id (Printf.sprintf "tap%d" dev)) 
       [a_dev; b_dev] in
   
-  let flow_wild = OP.Wildcards.({
-    in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-    dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-    nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-    dl_vlan_pcp=true; nw_tos=true;}) in
-  let flow = OP.Match.create_flow_match flow_wild 
-               ~in_port:a_port ~dl_type:(0x0800) 
-               ~nw_dst:b_tun_ip () in
   let actions = [OP.Flow.Output((OP.Port.port_of_int b_port), 
                                 2000);] in
-  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-              ~idle_timeout:0 ~buffer_id:(-1) actions () in 
-  lwt _ = OC.send_of_data controller dpid 
-            (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-            (Lwt_bytes.create 4096) )in
+  lwt _ = Sp_controller.setup_flow ~in_port:(Some(a_port)) 
+            ~dl_type:(Some(0x0800)) ~nw_dst_len:0 
+            ~nw_dst:(Some(b_tun_ip)) ~idle_timeout:0 ~hard_timeout:0 
+            ~priority:Ssh.tactic_priority actions in
   
-  let flow = OP.Match.create_flow_match flow_wild 
-               ~in_port:b_port ~dl_type:(0x0800) 
-               ~nw_dst:a_tun_ip () in
   let actions = [OP.Flow.Output((OP.Port.port_of_int a_port), 
                                 2000);] in
-  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-              ~idle_timeout:0 ~buffer_id:(-1) actions () in 
-    OC.send_of_data controller dpid 
-      (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-         (Lwt_bytes.create 4096) )
+    Sp_controller.setup_flow ~nw_dst_len:0
+      ~in_port:(Some(b_port)) ~dl_type:(Some(0x0800))
+      ~nw_dst:(Some(a_tun_ip)) ~priority:Ssh.tactic_priority 
+      ~idle_timeout:0  ~hard_timeout:0 actions 
 
 let enable_ssh conn a b = 
   (* Init server on b *)
@@ -425,27 +410,14 @@ let disable_ssh conn a b =
 
 let disable_cloud_ssh conn a b =
   try_lwt 
-      if (conn.direction = 3) then (
+      if (conn.direction = 3) then 
         let q_a = sprintf "%s.d%d" a Config.signpost_number in 
         let a_tun_ip = get_tactic_ip conn q_a in
-        let controller = Sp_controller.get_ctrl () in 
-        let dpid = Sp_controller.get_dpid ()  in
-  
-        let flow_wild = OP.Wildcards.({
-          in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-          dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-          nw_dst=(char_of_int 8); nw_src=(char_of_int 32);
-          dl_vlan_pcp=true; nw_tos=true;}) in
-        let flow = OP.Match.create_flow_match flow_wild 
-                     ~dl_type:(0x0800) ~nw_dst:a_tun_ip () in
-        let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.DELETE 
-                    ~idle_timeout:0 ~buffer_id:(-1) [] () in 
-          OC.send_of_data controller dpid 
-            (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Lwt_bytes.create 4096))
-      ) else (
+          Sp_controller.delete_flow
+            ~dl_type:(Some(0x0800)) ~priority:Ssh.tactic_priority
+            ~nw_dst:(Some(a_tun_ip)) ()
+      else
         return ()
-      )
   with ex -> 
     Printf.printf "[ssh]Failed ssh enabling %s->%s:%s\n%!" a b
       (Printexc.to_string ex);

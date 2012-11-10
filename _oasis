@@ -24,7 +24,7 @@ Executable server
   Custom:             true
   CompiledObject:     native
   Install:            false
-  BuildDepends:       signpost, ocamlgraph, dns, dns.lwt, re.str, re, mirage, mirage-net, lwt, openflow
+  BuildDepends:       signpost, ocamlgraph
 
 Executable client
   Path:               lib
@@ -32,7 +32,7 @@ Executable client
   Custom:             true
   CompiledObject:     native
   Install:            false
-  BuildDepends:       signpost, dns, dns.lwt, mirage, mirage-net
+  BuildDepends:       signpost
 
 Executable send_cmd
   Path:               lib
