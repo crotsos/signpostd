@@ -30,28 +30,23 @@ let config_json =
     ("external_dns", String Config.external_dns)
   ]
 
-let handle_hello fd src_ip args =
+let handle_hello fd args =
   let node :: ip :: str_port :: mac :: local_ips = args in
   let port = Int64.of_int (int_of_string str_port) in
   eprintf "rpc: hello %s -> %s:%Li\n%!" node ip port;
   Nodes.set_signalling_channel node fd;
   Nodes.set_node_local_ips node local_ips;
   Nodes.set_node_mac node mac;
-(*   eprintf "About to check for publicly accesible ips\n%!"; *)
   let rpc = create_notification "setup_sp_ip" 
               [(Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip node))] in 
   lwt _ = Nodes.send node rpc in 
   let rpc = create_request "test_nat" 
               [Config.external_ip; 
-               (Int64.to_string SignalHandler.echo_port)] in
+               (string_of_int SignalHandler.echo_port)] in
   lwt _ = Nodes.send node rpc in 
-(*   Nodes.check_for_publicly_accessible_ips node local_ips >>= fun public_ips
- *   ->  *)
-(*     eprintf "Got public ips... store them\n%!"; *)
-(*     Connections.set_public_ips node public_ips; *)
     return ()
 
-let handle_request fd src_ip command arg_list =
+let handle_request _ command arg_list =
   match command with
   | Command(command_name) -> 
     eprintf "ERROR: Received a REQUEST RPC that the server can't handle
@@ -69,12 +64,12 @@ let handle_request fd src_ip command arg_list =
       tactic_name;
       return Sp.NoResponse
 
-let handle_notification fd ip command arg_list =
+let handle_notification fd command arg_list =
   match command with
   | Command("hello") -> 
     eprintf "HELLO with args %s\n%!" 
     (String.concat ", " arg_list);
-    handle_hello fd ip arg_list
+    handle_hello fd arg_list
   | Command("register_mobile_host") -> 
       let a::b::_ = arg_list in
     eprintf "register_mobile_host with args %s\n%!" 
@@ -83,20 +78,6 @@ let handle_notification fd ip command arg_list =
   | Command("tactic_disconnected") ->
       let a::b::tactic::_ = arg_list in 
         Engine.disconnect a b tactic 
-  | Command("exec_tactic") -> 
-    begin 
-      try
-        let tactic = List.nth arg_list 0 in
-        let src = List.nth arg_list 1 in 
-        let dst = List.nth arg_list 2 in 
-        Printf.eprintf "Execute tactic %s %s->%s\n%!" tactic src dst;
-        lwt _ = Engine.connect_using_tactic tactic src dst in 
-          return ()
-    with Failure( str) ->
-      Printf.eprintf "Insufficient number of arguments to execute tactic:
-        %s\n%!" str;
-        return ()
-    end
   | Command(value)  ->
     Printf.eprintf "Invalid command %s\n%!" value;
     return ()

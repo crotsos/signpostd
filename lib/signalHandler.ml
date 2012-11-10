@@ -18,136 +18,97 @@
 (* Signalling UDP server that runs over Iodine *)
 open Lwt
 open Printf
-open Int64
 open Sp_rpc
 
-type sp_msg = {
-  src_ip : int32;
-  src_port : int;
-  cmd : t option;
-}
-
-let echo_port = 11000L 
+let echo_port = 11000 
 
 module type HandlerSig = sig
-  val handle_request : Lwt_unix.file_descr -> int32 -> command -> 
+  val handle_request : Lwt_unix.file_descr -> command -> 
     arg list -> Sp.request_response Lwt.t
-  val handle_notification : Lwt_unix.file_descr -> int32 -> command -> 
+  val handle_notification : Lwt_unix.file_descr -> command -> 
     arg list -> unit Lwt.t
 end
 
 module type Functor = sig
   val thread_client : address:Sp.ip -> 
-    port:Sp.port -> (unit -> unit Lwt.t) -> unit Lwt.t
-  val thread_server : address:Sp.ip -> port:Sp.port -> unit Lwt.t
+    port:int -> (unit -> unit Lwt.t) -> unit Lwt.t
+  val thread_server : address:Sp.ip -> port:int -> unit Lwt.t
 end
 
 module Make (Handler : HandlerSig) = struct
+
   let classify fd msg =
-    let open Rpc in
-    match msg.cmd with
-    | Some (Request(c, args, id)) -> begin
-        lwt response = (Handler.handle_request fd msg.src_ip c args) in
-        match response with
-        | Sp.ResponseValue v -> begin
-            let resp = (create_response_ok v id) in
-            Nodes.send_to_server resp 
-        end
-        | Sp.ResponseError e -> begin
-            let error = create_response_error e id in
-            Nodes.send_to_server error 
-        end
-        | Sp.NoResponse -> return ()
+    match msg with
+    | Request(c, args, id) -> begin
+        lwt response = (Handler.handle_request fd c args) in
+          match response with
+          | Sp.ResponseValue v -> 
+              Nodes.send_to_server (create_response_ok v id)
+          | Sp.ResponseError e -> 
+              Nodes.send_to_server (create_response_error e id)
+          | Sp.NoResponse -> return ()
     end
-    | Some (Response(r, id)) ->
+    | Response(r, id) ->
         Nodes.wake_up_thread_with_reply id (Response(r, id))
-    | Some (Notification(c, args)) ->
-        Handler.handle_notification fd msg.src_ip c args
-    | _ -> Printf.eprintf "[signalHandler] failed to process req\n%!";
-           return ()
-
-  let dispatch_rpc fd msg = 
-    match msg.cmd with 
-      | Some _ -> return (Lwt.ignore_result (classify fd msg))
-      | None -> 
-          eprintf "signal handler cannot dispatch a 'None'-RPC\n%!";
-          return ()
-
-  (* Listens on port Config.signal_port *)
-  let create_fd ~address ~port =
-    let fd = Lwt_unix.(socket PF_INET SOCK_STREAM 0) in
-      (* so we can restart our server quickly *)
-    return fd
+    | Notification(c, args) ->
+        Handler.handle_notification fd c args
 
   let bind_fd ~address ~port =
-    lwt fd = create_fd address port in 
+    let fd = Lwt_unix.(socket PF_INET SOCK_STREAM 0) in 
     lwt src = try_lwt
       let hent = Unix.gethostbyname address in
-      return (Unix.ADDR_INET (hent.Unix.h_addr_list.(0), (to_int port)))
+      return (Unix.ADDR_INET (hent.Unix.h_addr_list.(0), port))
     with _ ->
       raise_lwt (Failure ("cannot resolve " ^ address))
     in
+      (* so we can restart our server quickly *)
     Lwt_unix.setsockopt fd Unix.SO_REUSEADDR true ;
     let () = Lwt_unix.bind fd src in
     let _ = Lwt_unix.listen fd 10 in 
       return fd
 
-
   let sockaddr_to_string =
     function
     | Unix.ADDR_UNIX x -> sprintf "UNIX %s" x
-    | Unix.ADDR_INET (a,p) -> sprintf "%s:%d" 
-                                (Unix.string_of_inet_addr a) p
+    | Unix.ADDR_INET (a,p) -> 
+        sprintf "%s:%d" (Unix.string_of_inet_addr a) p
+
+  let rec process_buffer sock data =
+    match (String.length data) with
+      | 0 -> return data
+      | _ -> begin 
+          match rpc_of_string data with 
+            | (Some(msg), len) ->
+                let data = String.sub data len ((String.length data) - len) in
+                let _ = Lwt.ignore_result (classify sock msg) in 
+                  process_buffer sock data
+            | None , _ -> return data
+        end
 
   let process_channel sock dst =
-    let data = ref "" in 
-    let running = ref true in 
-      try_lwt
-        let rec process_buffer () =
-          match (String.length !data) with
-            | 0 -> return ()
-            | _ -> begin 
-                let (Some(rpc), len) = rpc_of_string !data in
-(*
-                  Printf.printf "XXXXXXXXXXXXX processing %s [remainder: %s]\n%!" 
-                    (String.sub !data 0 len)
-                    (String.sub !data len ((String.length !data) - len));
- *)
-                  data := String.sub !data len ((String.length !data) - len);
-                  let msg = 
-                    match dst with 
-                      |  Unix.ADDR_UNIX _ ->{src_ip=0l;src_port=0; cmd=Some(rpc);}
-                      | Unix.ADDR_INET (a,_) -> {
-                          src_ip=(Uri_IP.string_to_ipv4(Unix.string_of_inet_addr a)); 
-                          src_port=0; cmd=Some(rpc);}
-                  in 
-                  let _ = Lwt.ignore_result (dispatch_rpc sock msg) in 
-                    process_buffer ()
-              end
-        in
-        while_lwt !running do
-          let buf = String.create 4096 in
-          lwt len = Lwt_unix.recv sock buf 0 (String.length buf) [] in
-          match len with 
-            | 0 -> begin 
-                (* TODO: Propagate an event to engine to serverSignal to clean up 
-                 * state for node *)
-                printf "Channel read 0 bytes\n%!";
-                Printf.printf "[signal] session terminated with end-node %s\n%!"
+    try_lwt
+      let rec channel_loop sock buf data =
+        lwt len = Lwt_unix.recv sock buf 0 (String.length buf) [] in
+        match len with 
+          | 0 -> begin 
+              (* TODO: Propagate an event to engine to serverSignal 
+               * to clean up state for node *)
+                eprintf "[signal] session terminated with end-node %s\n%!"
                   (sockaddr_to_string dst);
-                running := false;
-                return () 
-              end
-            | _ ->
-                let subbuf = String.sub buf 0 len in
-                  data := !data ^ subbuf;
-                  eprintf "tcp recvfrom %s : %s\n%!" (sockaddr_to_string dst) subbuf;
-                  process_buffer ()
-        done
+              return () 
+          end
+          | _ ->
+            let subbuf = String.sub buf 0 len in
+            let data = data ^ subbuf in 
+            let _ = eprintf "tcp recvfrom %s : %s\n%!" 
+                      (sockaddr_to_string dst) subbuf in
+            lwt data = process_buffer sock data in 
+              channel_loop sock buf data
+      in 
+        channel_loop sock (String.create 4096) "" 
     with exn ->
       Printf.printf "[signal] session terminated with end-node %s : %s\n%!"
         (sockaddr_to_string dst) (Printexc.to_string exn);
-      running := false;
       return ()
 
   let echo_testing_server listen_port =
@@ -178,7 +139,6 @@ module Make (Handler : HandlerSig) = struct
                         (String.length reply_str) [] in 
             
               return (Lwt_unix.shutdown client_sock Lwt_unix.SHUTDOWN_ALL))
-    (*     let x = send client_sock str 0 len [] in *)
           | {_} ->
               printf "[echo_server] failed to parse packet\n%!";
               return (Lwt_unix.shutdown client_sock Lwt_unix.SHUTDOWN_ALL)
@@ -201,15 +161,16 @@ module Make (Handler : HandlerSig) = struct
 let thread_client ~address ~port init =
     (* Listen for UDP packets *)
   let _ = Lwt.ignore_result (echo_testing_server echo_port) in
-  lwt fd = create_fd ~address ~port in
-    lwt src = try_lwt
+  let fd = Lwt_unix.(socket PF_INET SOCK_STREAM 0) in
+  lwt src = 
+    try_lwt
       let hent = Unix.gethostbyname address in
       return (Unix.ADDR_INET (hent.Unix.h_addr_list.(0), 
-                              (to_int port)))
+                              port))
     with _ ->
       raise_lwt (Failure ("cannot resolve " ^ address))
-    in
-      lwt _ = Lwt_unix.connect fd src in
-      let _ = Nodes.set_server_signalling_channel fd in
-        (init ()) <&> (process_channel fd src )
+  in
+  lwt _ = Lwt_unix.connect fd src in
+  let _ = Nodes.set_server_signalling_channel fd in
+    (init ()) <&> (process_channel fd src )
 end
