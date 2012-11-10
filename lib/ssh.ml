@@ -81,26 +81,26 @@ module Manager = struct
   let run_server () =
     (* TODO: Check if pid is still running *)
     match conn_db.server_pid with
-    | None ->(
+    | None -> begin
       try
         let cmd = Config.dir ^ "/client_tactics/ssh/server" in
         printf "%s %s\n%!" cmd Config.conf_dir;
         let _ = Unix.create_process cmd [| cmd; Config.conf_dir |] 
         Unix.stdin Unix.stdout Unix.stderr in
         lwt _ = Lwt_unix.sleep 2.0 in 
-        let buf = String.create 100 in
-        let fd = Unix.openfile "/tmp/signpost_sshd.pid" [Unix.O_RDONLY]  0o640 in
-        let len = Unix.read fd buf 0 100 in 
-        conn_db.server_pid <- Some(int_of_string (String.sub buf 0 (len-1)));
-        Printf.printf "[ssh] process created with pid %s...\n" (String.sub buf 0 (len-1));
-        return("OK")
-      with err ->
-        Printf.eprintf "[ssh] error : %s\n%!" (Printexc.to_string err);
-        failwith  (Printexc.to_string err)
-        )
-      | Some(_) -> 
-          Printf.printf "[ssh] ssh server already started...\n%!";
+        let fd = open_in "/tmp/signpost_sshd.pid" in
+        let buf = input_line fd in
+        let _ = close_in fd in 
+        let _ = conn_db.server_pid <- Some(int_of_string buf) in
+        let _ = Printf.printf "[ssh] server pid %s...\n" buf in 
           return("OK")
+      with err ->
+        let _ = Printf.eprintf "[ssh] error : %s\n%!" (Printexc.to_string err) in
+          failwith  (Printexc.to_string err)
+      end
+      | Some(_) -> 
+          let _ = Printf.printf "[ssh] server running...\n%!" in
+            return("OK")
 
   (*TODO:
    * - timeout connect 
@@ -258,17 +258,6 @@ module Manager = struct
 
   let setup_flows dev mac_addr local_ip rem_ip local_sp_ip 
         remote_sp_ip = 
-    let controller = Sp_controller.get_ctrl () in 
-    let dpid = Sp_controller.get_dpid ()  in
-
-    let flow_wild = OP.Wildcards.({
-      in_port=true; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    
-    let flow = OP.Match.create_flow_match flow_wild 
-                 ~dl_type:(0x0800) ~nw_dst:remote_sp_ip () in
     let port = Net_cache.Port_cache.dev_to_port_id dev in
     let actions = [ OP.Flow.Set_nw_src(local_ip);
                     OP.Flow.Set_nw_dst(rem_ip);
@@ -276,13 +265,11 @@ module Manager = struct
                       (Net_cache.mac_of_string mac_addr));                    
                     OP.Flow.Output((OP.Port.port_of_int port), 
                                    2000);] in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:tactic_priority 
-                ~idle_timeout:0 ~buffer_id:(-1) actions () in 
-    lwt _ = OC.send_of_data controller dpid 
-              (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-                 (Lwt_bytes.create 4096)) in
-    
+    lwt _ = Sp_controller.setup_flow ~dl_type:(Some(0x0800)) 
+                 ~nw_dst_len:0 ~nw_dst:(Some(remote_sp_ip))
+                 ~priority:tactic_priority  ~idle_timeout:0 
+                ~hard_timeout:0 actions in 
+
     (* get local mac address *)
     let ip_stream = (Unix.open_process_in
                        (Config.dir ^ 
@@ -292,24 +279,14 @@ module Manager = struct
     let mac = Net_cache.mac_of_string mac in
 
     (* setup incoming flow *)
-    let flow_wild = OP.Wildcards.({
-      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match flow_wild 
-                 ~in_port:port ~dl_type:(0x0800) 
-                 ~nw_dst:local_ip () in
     let actions = [ OP.Flow.Set_nw_dst(local_sp_ip);
                      OP.Flow.Set_nw_src(remote_sp_ip); 
                     OP.Flow.Set_dl_dst(mac);
                     OP.Flow.Output(OP.Port.Local, 2000);] in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:tactic_priority ~idle_timeout:0  
-                ~buffer_id:(-1) actions () in 
-      OC.send_of_data controller dpid 
-        (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-           (Lwt_bytes.create 4096))
+      Sp_controller.setup_flow ~dl_type:(Some(0x0800)) 
+        ~nw_dst_len:0 ~nw_dst:(Some(local_ip))
+        ~in_port:(Some(port)) ~priority:tactic_priority 
+        ~idle_timeout:0 ~hard_timeout:0 actions
 
   let connect kind args =
     try_lwt
@@ -357,17 +334,6 @@ module Manager = struct
  * *)
   let setup_flows dev mac_addr local_ip rem_ip local_sp_ip 
         remote_sp_ip = 
-    let controller = Sp_controller.get_ctrl () in 
-    let dpid = Sp_controller.get_dpid ()  in
-
-    let flow_wild = OP.Wildcards.({
-      in_port=true; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    
-    let flow = OP.Match.create_flow_match flow_wild 
-                 ~dl_type:(0x0800) ~nw_dst:remote_sp_ip () in
     let port = Net_cache.Port_cache.dev_to_port_id dev in
     let actions = [ OP.Flow.Set_nw_src(local_ip);
                     OP.Flow.Set_nw_dst(rem_ip);
@@ -375,12 +341,10 @@ module Manager = struct
                       (Net_cache.mac_of_string mac_addr));                    
                     OP.Flow.Output((OP.Port.port_of_int port), 
                                    2000);] in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:tactic_priority 
-                ~idle_timeout:0 ~buffer_id:(-1) actions () in 
-    lwt _ = OC.send_of_data controller dpid 
-              (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
-              (Lwt_bytes.create 4096) ) in
+    lwt _ = Sp_controller.setup_flow ~dl_type:(Some(0x0800)) 
+                 ~nw_dst_len:0 ~nw_dst:(Some(remote_sp_ip))
+                 ~priority:tactic_priority  ~idle_timeout:0 
+                ~hard_timeout:0 actions in 
     
     (* get local mac address *)
     let ip_stream = (Unix.open_process_in
@@ -391,23 +355,14 @@ module Manager = struct
     let mac = Net_cache.mac_of_string mac in
 
     (* setup incoming flow *)
-    let flow_wild = OP.Wildcards.({
-      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match flow_wild ~in_port:port 
-                 ~dl_type:(0x0800) ~nw_dst:local_ip () in
     let actions = [ OP.Flow.Set_nw_dst(local_sp_ip);
                      OP.Flow.Set_nw_src(remote_sp_ip); 
                     OP.Flow.Set_dl_dst(mac);
                     OP.Flow.Output(OP.Port.Local, 2000);] in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:tactic_priority ~idle_timeout:0  
-                ~buffer_id:(-1) actions () in 
-      OC.send_of_data controller dpid 
-        (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
-        (Lwt_bytes.create 4096))
+      Sp_controller.setup_flow ~dl_type:(Some(0x0800)) 
+        ~nw_dst_len:0 ~nw_dst:(Some(local_ip))
+        ~in_port:(Some(port)) ~priority:tactic_priority 
+        ~idle_timeout:0 ~hard_timeout:0 actions
 
   let enable kind args =
     try_lwt
@@ -440,7 +395,8 @@ module Manager = struct
                             local_ip remote_ip local_sp_ip remote_sp_ip
 
           in
-          let _ = Monitor.add_dst (Uri_IP.ipv4_to_string remote_sp_ip) conn.rem_node "ssh" in
+          let _ = Monitor.add_dst (Uri_IP.ipv4_to_string remote_sp_ip) 
+                    conn.rem_node "ssh" in
             return ("true")
           end
       with exn ->
@@ -451,40 +407,16 @@ module Manager = struct
  * tunnel disabling code
  * *)
   let unset_flows dev local_tun_ip remote_sp_ip = 
-    let controller = Sp_controller.get_ctrl () in 
-    let dpid = Sp_controller.get_dpid ()  in
-
-    let flow_wild = OP.Wildcards.({
-      in_port=true; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    
-    let flow = OP.Match.create_flow_match flow_wild 
-                 ~dl_type:(0x0800) ~nw_dst:remote_sp_ip () in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.DELETE_STRICT 
-                ~priority:tactic_priority 
-                ~idle_timeout:0 ~buffer_id:(-1) [] () in 
-    lwt _ = OC.send_of_data controller dpid 
-              (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
-              (Lwt_bytes.create 4096)) in
-
+    lwt _ = Sp_controller.delete_flow ~dl_type:(Some(0x0800)) 
+              ~nw_dst_len:0 ~nw_dst:(Some(remote_sp_ip)) 
+              ~priority:tactic_priority () in
     
     (* setup incoming flow *)
     let port = Net_cache.Port_cache.dev_to_port_id dev in
-    let flow_wild = OP.Wildcards.({
-      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 0); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match flow_wild ~in_port:port 
-                 ~dl_type:(0x0800) ~nw_dst:local_tun_ip () in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.DELETE_STRICT
-                ~priority:tactic_priority ~idle_timeout:0  
-                ~buffer_id:(-1) [] () in 
-      OC.send_of_data controller dpid 
-        (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
-        (Lwt_bytes.create 4096))
+
+      Sp_controller.delete_flow ~dl_type:(Some(0x0800)) 
+        ~in_port:(Some(port)) ~nw_dst_len:0 ~nw_dst:(Some(local_tun_ip)) 
+        ~priority:tactic_priority () 
 
   let disable kind args =
     try_lwt

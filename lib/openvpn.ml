@@ -65,7 +65,7 @@ module Manager = struct
  * setup an echo udp listening socket. 
  *
  * *)
-  let run_server port =
+  let run_server src_port port =
     Printf.printf "[openvpn] Starting udp server\n%!";
     let buf = String.create 1500 in
     let sock =Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM
@@ -134,8 +134,10 @@ module Manager = struct
     match kind with
       (* start udp server *)
       | "server_start" -> (
-          let port = (int_of_string (List.hd args)) in 
-          let _ = run_server port in
+          let src_port::port::_ = args in 
+          let src_port = int_of_string src_port in
+          let port = int_of_string port in 
+          let _ = run_server src_port port in
             return ("OK"))
       (* code to stop the udp echo server*)
       | "server_stop" -> begin

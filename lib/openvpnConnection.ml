@@ -122,7 +122,9 @@ let test a b =
     try_lwt 
       Printf.printf "[openvpn] starting testing server...\n%!";
       let rpc = (create_tactic_request "openvpn" 
-        TEST "server_start" [(string_of_int (openvpn_port+1))]) in
+        TEST "server_start" [
+          (string_of_int (openvpn_port+2));
+          (string_of_int (openvpn_port+1))]) in
       lwt _ = (Nodes.send_blocking a rpc) in 
   
       let not_ips =  Nodes.get_node_local_ips b in
@@ -133,11 +135,13 @@ let test a b =
 
       lwt res = 
         Nodes.send_blocking b (create_tactic_request "openvpn" 
-        TEST "client" ([(string_of_int (openvpn_port + 2)); 
+        TEST "client" ([(string_of_int (openvpn_port+2)); 
                         (string_of_int (openvpn_port+1))] @ ips)) in   
   
       let rpc = (create_tactic_request "openvpn" 
-        TEST "server_stop" [(string_of_int (openvpn_port+1))]) in
+        TEST "server_stop" [
+          (string_of_int (openvpn_port+2));
+          (string_of_int (openvpn_port+1))]) in
       lwt _ = (Nodes.send_blocking a rpc) in 
         dir := direction;
         succ := true;
