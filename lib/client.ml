@@ -108,6 +108,7 @@ let dnsfn resolv st ~src ~dst packet =
           return (Some ret)
 
 let dns_t () =
+  try_lwt
   (* setup default resovler for the rest *)
   lwt resolv = Dns_resolver.create () in
   (* setup resolver for the signpost *)
@@ -115,9 +116,21 @@ let dns_t () =
   lwt t = Dns_resolver.create ~config () in 
   lwt st = Sec.init_dnssec ~resolver:(Some(t)) () in
 
+  lwt p = Dns_resolver.resolve t Q_IN Q_DNSKEY 
+            dns_domain in
+  let rec add_root_dnskey = function
+    | [] -> ()
+    | hd :: tl when (rdata_to_rr_type hd.rdata) = RR_DNSKEY -> 
+        let _ = Sec.add_anchor st hd in
+          add_root_dnskey tl 
+    | hd :: tl -> add_root_dnskey tl
+  in 
+  let _ = add_root_dnskey p.answers in 
   (* local nameserver *)
   lwt fd, src = Dns_server.bind_fd ~address:"0.0.0.0" ~port:53 in
     Dns_server.listen ~fd ~src ~dnsfn:(dnsfn resolv st)
+  with ex ->
+    return (eprintf "[dns] error: %s\n%!" (Printexc.to_string ex))
 
 let get_hello_rpc ips =
   let string_port = (string_of_int !node_port) in
