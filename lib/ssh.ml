@@ -152,7 +152,11 @@ module Manager = struct
       (* test tcp connectivity *)
       | "client" -> (
           try_lwt
-            let ssh_port :: ips = args in 
+            let ssh_port, ips = 
+              match args with 
+                | ssh_port :: ip -> ssh_port, ip
+                | _ -> raise (SshError("insufficient client params"))
+            in 
             let ssh_port = int_of_string ssh_port in
             lwt ip = ((lwt _ = Lwt_unix.sleep 2.0 in 
                          failwith("client can't connect") ) 
@@ -292,9 +296,13 @@ module Manager = struct
     try_lwt
       match kind with
           | "server" -> (
-          let rem_domain::rem_node::conn_id::rem_sp_ip::loc_tun_ip::_ = args in 
-          let conn_id = Int32.of_string conn_id in
-          let rem_sp_ip = Uri_IP.string_to_ipv4 rem_sp_ip in
+          let rem_domain, rem_node, conn_id, rem_sp_ip, loc_tun_ip = 
+            match args with 
+            | rem_domain::rem_node::conn_id::rem_sp_ip::loc_tun_ip::_ -> 
+              (rem_domain, rem_node, (Int32.of_string conn_id), 
+               (Uri_IP.string_to_ipv4 rem_sp_ip), loc_tun_ip)
+            | _ -> raise (SshError("connect Insufficient params"))
+          in 
   
           (* Setup tunel tun tap device *)
           let dev_id = Tap.get_new_dev_ip () in
@@ -303,8 +311,7 @@ module Manager = struct
           (* Adding remote node public key in authorized keys file *)
           let q_rem_domain = sprintf "%s.%s" rem_domain Config.domain in
           let _ = server_add_client conn_id q_rem_domain rem_sp_ip dev_id rem_node in
-  
-           return(string_of_int dev_id))
+            return(string_of_int dev_id))
         | "client" ->
           let server_ip::ssh_port::rem_domain::rem_node::conn_id::loc_tun_ip::
               rem_dev:: _ = args in
