@@ -64,7 +64,7 @@ let get_response key packet q =
   (* Normalise the domain names to lower case *)
   let qnames = List.map String.lowercase q.q_name in
   eprintf "Q: %s\n%!" (String.concat " " qnames);
-  let from_trie = answer_query q.q_name 
+  let from_trie = answer_query ~dnssec:true q.q_name 
                     q.q_type Loader.(state.db.trie) in
   match qnames with
     (* For this strawman, we assume a valid query has form
@@ -86,23 +86,48 @@ let dnsfn key ~src ~dst packet =
     return (Some (resp))
   |_ -> eprintf "dns dns query: multiple questions\n%!"; return None
 
-let load_dnskey_rr () = 
-  let ret = ref "" in 
+let rdata_to_zone_file_record rr =
+  match rr.rdata with
+    | DNSKEY(f,a,k) -> 
+      sprintf "%s. %s %ld DNSKEY %d 3 %d %s\n"
+        (Dns.Name.domain_name_to_string rr.name)
+        (rr_class_to_string rr.cls) rr.ttl 
+        f (dnssec_alg_to_int a) 
+        (Cryptokit.transform_string (Cryptokit.Base64.encode_compact ()) k)
+    | RRSIG(typ, alg, lbl, orig_ttl, exp_ts, inc_ts, tag, name, sign) ->  
+        let typ = Re_str.global_replace (Re_str.regexp "RR_") 
+                    "" (rr_type_to_string typ) in 
+        sprintf "%s. %s %ld RRSIG %s %d %d %ld %ld %ld %d %s. \"%s\"\n"
+          (Dns.Name.domain_name_to_string rr.name)
+          (rr_class_to_string rr.cls) rr.ttl
+          typ (dnssec_alg_to_int alg)
+          (int_of_char lbl) orig_ttl exp_ts inc_ts tag
+          (Dns.Name.domain_name_to_string name)
+          (Cryptokit.transform_string (Cryptokit.Base64.encode_compact ()) sign)
+    | _ -> failwith "Unsupported rr type"
+
+let load_dnskey_rr sign_tag key = 
+  let ret = ref [] in 
   let dir = (Unix.opendir (Config.conf_dir ^ "/authorized_keys/")) in
   let rec read_pub_key dir =  
   try 
     let file = Unix.readdir dir in
     lwt _ = 
-      if ( Re_str.string_match (Re_str.regexp ".*\\.pub") file 0) then 
+      if ( Re_str.string_match (Re_str.regexp ".*\\.pub") file 0) then
+          let key = Config.conf_dir ^ "/authorized_keys/" ^ file in
           lwt dnskey_rr = 
-            dnskey_of_pem_pub_file 
-              (Config.conf_dir ^ "/authorized_keys/" ^ file) in
-          let hostname = 
-            List.nth (Re_str.split (Re_str.regexp "\\.") file) 0 in 
+            dnskey_rdata_of_pem_pub_file key 0 Dns.Packet.RSASHA1 in
             match dnskey_rr with
-              | Some(value) -> 
-                  return (ret := (!ret) ^ "\n" ^ 
-                  (sprintf "%s IN %s\n" hostname (List.hd value)))
+              | Some(rdata) -> 
+                  let hostname = 
+                    List.nth (Re_str.split (Re_str.regexp "\\.") file) 0 in 
+                  let rr = Dns.Packet.({
+                    name=([hostname] @ (our_domain_l));
+                    cls=Dns.Packet.RR_IN;
+                    ttl=120l;
+                    rdata;}) in 
+                  return (ret := (!ret) @ [rr])
+                      
               | None -> return ()
       else
         return ()
@@ -112,7 +137,20 @@ let load_dnskey_rr () =
     let _ = Unix.closedir dir in 
       return (!ret)
   in 
-  read_pub_key dir
+  lwt rrset = read_pub_key dir in 
+  let rec rrset_to_string = function
+    | [] -> ""
+    | rr::tl when ((Dns.Packet.rdata_to_rr_type rr.rdata) = (Dns.Packet.RR_DNSKEY)) -> 
+        let sign = 
+          Sec.sign_records  
+            Dns.Packet.RSASHA1 key sign_tag our_domain_l
+            [rr] in 
+          sprintf "%s\n%s\n%s"
+            (rdata_to_zone_file_record rr)
+            (rdata_to_zone_file_record sign)
+            (rrset_to_string tl)
+  in
+    return (rrset_to_string rrset)
 
 let load_key file = 
   let k = Key.load_rsa_priv_key file in 
@@ -120,15 +158,22 @@ let load_key file =
 
 let dns_t () =
   lwt fd, src = Dns_server.bind_fd ~address:"0.0.0.0" ~port:5354 in
-  lwt dns_keys = load_dnskey_rr () in
   let key  = load_key (Config.conf_dir ^ "/signpost.pem") in
-  lwt zone_keys = (dnskey_of_pem_priv_file 
-    (Config.conf_dir ^ "/signpost.pem"))  in 
-  let zsk = 
-    match zone_keys with
-    | None -> failwith "Cannot open signpost.pem private key"
-    | Some(keys) -> List.hd keys
-  in
+  lwt Some(sign_dnskey) = Key.dnskey_rdata_of_pem_priv_file
+                       (Config.conf_dir ^ "/signpost.pem")
+                       257 Dns.Packet.RSASHA1 in 
+  let sign_tag = Sec.get_dnskey_tag sign_dnskey in 
+  let zsk = Dns.Packet.({
+    name=(our_domain_l);
+    cls=Dns.Packet.RR_IN;
+    ttl=120l; rdata=sign_dnskey;}) in 
+  let sign = 
+    Sec.sign_records  
+      Dns.Packet.RSASHA1 key sign_tag our_domain_l
+      [zsk] in 
+  lwt zone_keys = dnskey_of_pem_priv_file 
+    (Config.conf_dir ^ "/signpost.pem")  in 
+  lwt dns_keys = load_dnskey_rr sign_tag key in
   let zonebuf = sprintf "
 $ORIGIN %s. ;
 $TTL 0
@@ -143,9 +188,11 @@ $TTL 0
 
 @ A %s
 i NS %s.
-@ %s
+%s
+%s
 %s" our_domain Config.external_ip our_domain Config.external_ip 
-   Config.external_dns zsk dns_keys in
+   Config.external_dns (rdata_to_zone_file_record zsk) 
+                  (rdata_to_zone_file_record sign) dns_keys in
   eprintf "%s\n%!" zonebuf;
   Dns.Zone.load_zone [] zonebuf;
   Dns_server.listen ~fd ~src ~dnsfn:(dnsfn key)
