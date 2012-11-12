@@ -39,17 +39,16 @@ let nxdomain =
    answer=[]; authority=[]; additional=[]}
 
 (* Ip address response for a node *)
-let ip_resp key ~dst ~src ~domain =
+let ip_resp key sign_tag ~dst ~src ~domain =
   lwt ip = Engine.find src dst in
     match ip with
       | Some ip -> 
           let answers = 
             { name=dst::src::domain;cls=RR_IN; ttl=0l;
               rdata=(A ip);} in
-          let lbl = (List.length domain) + 2 in 
           let sign = 
-            Sec.sign_records ~expiration:(60l) 
-              Dns.Packet.RSASHA1 key lbl domain 
+            Sec.sign_records ~expiration:(Int32.of_float ((Unix.gettimeofday ()) +. 60.0) )
+              Dns.Packet.RSASHA1 key sign_tag domain 
               [answers] in 
             return 
               ({rcode=NoError;aa=true;
@@ -60,7 +59,7 @@ let ip_resp key ~dst ~src ~domain =
           return nxdomain
 
 (* Figure out the response from a query packet and its question section *)
-let get_response key packet q =
+let get_response key sign_tag packet q =
   (* Normalise the domain names to lower case *)
   let qnames = List.map String.lowercase q.q_name in
   eprintf "Q: %s\n%!" (String.concat " " qnames);
@@ -74,27 +73,42 @@ let get_response key packet q =
      let domain'=String.concat "." domain in
      if domain' = our_domain then begin
        eprintf "src:%s dst:%s dom:%s\n%!" src dst domain';
-       ip_resp key ~dst ~src ~domain
+       ip_resp key sign_tag ~dst ~src ~domain
      end else return(from_trie)
   end
   |_ -> return (from_trie)
 
-let dnsfn key ~src ~dst packet =
+let dnsfn key sign_tag ~src ~dst packet =
   match packet.questions with
   |[] -> eprintf "bad dns query: no questions\n%!"; return None
-  |[q] -> lwt resp = get_response key packet q in
+  |[q] -> lwt resp = get_response key sign_tag packet q in
     return (Some (resp))
   |_ -> eprintf "dns dns query: multiple questions\n%!"; return None
 
 let rdata_to_zone_file_record rr =
   match rr.rdata with
-    | DNSKEY(f,a,k) -> 
+    | DNSKEY(f,a,k) ->
+      let k = Cryptokit.transform_string (Cryptokit.Base64.encode_compact ()) k in
+      let pad = ((String.length k) mod 4) in
+      let k = 
+        if (pad = 0) then
+          k
+        else
+          k ^ (String.make (4 - pad) '=') 
+      in 
       sprintf "%s. %s %ld DNSKEY %d 3 %d %s\n"
         (Dns.Name.domain_name_to_string rr.name)
         (rr_class_to_string rr.cls) rr.ttl 
-        f (dnssec_alg_to_int a) 
-        (Cryptokit.transform_string (Cryptokit.Base64.encode_compact ()) k)
+        f (dnssec_alg_to_int a) k
     | RRSIG(typ, alg, lbl, orig_ttl, exp_ts, inc_ts, tag, name, sign) ->  
+        let sign = Cryptokit.transform_string (Cryptokit.Base64.encode_compact ()) sign in
+        let pad = ((String.length sign) mod 4) in
+        let sign = 
+          if (pad = 0) then
+            sign
+          else
+            sign ^ (String.make (4 - pad) '=') 
+        in 
         let typ = Re_str.global_replace (Re_str.regexp "RR_") 
                     "" (rr_type_to_string typ) in 
         sprintf "%s. %s %ld RRSIG %s %d %d %ld %ld %ld %d %s. \"%s\"\n"
@@ -102,8 +116,7 @@ let rdata_to_zone_file_record rr =
           (rr_class_to_string rr.cls) rr.ttl
           typ (dnssec_alg_to_int alg)
           (int_of_char lbl) orig_ttl exp_ts inc_ts tag
-          (Dns.Name.domain_name_to_string name)
-          (Cryptokit.transform_string (Cryptokit.Base64.encode_compact ()) sign)
+          (Dns.Name.domain_name_to_string name) sign
     | _ -> failwith "Unsupported rr type"
 
 let load_dnskey_rr sign_tag key = 
@@ -195,7 +208,7 @@ i NS %s.
                   (rdata_to_zone_file_record sign) dns_keys in
   eprintf "%s\n%!" zonebuf;
   Dns.Zone.load_zone [] zonebuf;
-  Dns_server.listen ~fd ~src ~dnsfn:(dnsfn key)
+  Dns_server.listen ~fd ~src ~dnsfn:(dnsfn key sign_tag)
 
 module IncomingSignalling = SignalHandler.Make (ServerSignalling)
 
