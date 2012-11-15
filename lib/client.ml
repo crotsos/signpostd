@@ -76,8 +76,10 @@ let forward_dns_query_to_ns resolv q =
 let forward_dns_query_to_sp st sig0 dst q = 
   (* Normalise the domain names to lower case *)
   let src = !node_name in 
-  let host = dst::src::dns_domain in
-  lwt res = Sec.resolve st ~sig0:(Some sig0) q.q_class q.q_type host in 
+  let host = dst::dns_domain in
+  let _ = printf "getting sig0 packet yeah....\n%!" in 
+  lwt res = Sec.resolve st ~sig0:(Some sig0) 
+              q.q_class q.q_type host in 
     match res with
       | Sec.Signed(res::_) -> 
           return (sp_rr_to_packet res (dst::dns_domain))
@@ -122,11 +124,12 @@ let dns_t () =
          (Config.conf_dir ^ "/signpost.pem")) in
   lwt Some(sign_dnskey) = Key.dnskey_rdata_of_pem_priv_file
                        (Config.conf_dir ^ "/signpost.pem")
-                       257 Dns.Packet.RSASHA1 in 
+                       0 Dns.Packet.RSASHA1 in 
+  let _ = printf "sign rec : %s\n%!" (rdata_to_string sign_dnskey) in 
 (*  let _ = Sec.add_anchor st sign_dnskey in *)
   let sign_tag = Sec.get_dnskey_tag sign_dnskey in
   let sig0 = (Dns.Packet.RSASHA1, sign_tag, (Sec.Rsa key), 
-              [(!node_name)]@ dns_domain) in
+              ([!node_name] @ dns_domain)) in
   lwt p = Dns_resolver.resolve t Q_IN Q_DNSKEY 
             dns_domain in
   let rec add_root_dnskey = function
