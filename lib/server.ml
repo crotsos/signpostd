@@ -25,9 +25,13 @@ open Int64
 open Sp_controller
 open Key
 
+open Re_str
+
 (* The domain we are authoritative for *)
 let our_domain =
   sprintf "d%d.%s" Config.signpost_number Config.domain
+
+let dns_domain = split (regexp_string ".") our_domain
 
 let our_domain_l =
   let d = "d" ^ (string_of_int Config.signpost_number) in
@@ -38,13 +42,21 @@ let nxdomain =
   {rcode=NXDomain;aa=false;
    answer=[]; authority=[]; additional=[]}
 
+let rec compareVs v1 v2 = 
+  match v1, v2 with
+  | [], [] -> Some([])
+  | [], _ -> None
+  | rest, [] -> Some(rest)
+  | x::xs, y::ys when x = y -> compareVs xs ys
+  | _, _ -> None
+
 (* Ip address response for a node *)
 let ip_resp key sign_tag ~dst ~src ~domain =
   lwt ip = Engine.find src dst in
     match ip with
       | Some ip -> 
           let answers = 
-            { name=dst::src::domain;cls=RR_IN; ttl=0l;
+            { name=dst::domain;cls=RR_IN; ttl=0l;
               rdata=(A ip);} in
           let sign = 
             Sec.sign_records ~expiration:(Int32.of_float ((Unix.gettimeofday ()) +. 60.0) )
@@ -58,32 +70,60 @@ let ip_resp key sign_tag ~dst ~src ~domain =
       | None -> 
           return nxdomain
 
-(* Figure out the response from a query packet and its question section *)
-let get_response key sign_tag packet q =
-  (* Normalise the domain names to lower case *)
-  let qnames = List.map String.lowercase q.q_name in
-  eprintf "Q: %s\n%!" (String.concat " " qnames);
-  let from_trie = answer_query ~dnssec:true q.q_name 
-                    q.q_type Loader.(state.db.trie) in
-  match qnames with
-    (* For this strawman, we assume a valid query has form
-     * <dst node>.<src node>.<domain name>
-     *)
-  |dst::src::domain -> begin
-     let domain'=String.concat "." domain in
-     if domain' = our_domain then begin
-       eprintf "src:%s dst:%s dom:%s\n%!" src dst domain';
-       ip_resp key sign_tag ~dst ~src ~domain
-     end else return(from_trie)
-  end
-  |_ -> return (from_trie)
-
-let dnsfn key sign_tag ~src ~dst packet =
+let dnsfn st key sign_tag ~src ~dst packet =
+  try_lwt
   match packet.questions with
   |[] -> eprintf "bad dns query: no questions\n%!"; return None
-  |[q] -> lwt resp = get_response key sign_tag packet q in
-    return (Some (resp))
+  |[q] ->
+      begin
+        (* Normalise the domain names to lower case *)
+        let qnames = List.map String.lowercase q.q_name in
+        let _ = eprintf "Q: %s\n%s\n%!" (String.concat " " qnames) 
+                  (Dns.Packet.to_string packet) in
+        let from_trie = answer_query ~dnssec:true q.q_name 
+                          q.q_type Loader.(state.db.trie) in
+          match (q.q_type, (compareVs (List.rev qnames) (List.rev dns_domain))) with
+            (* For this strawman, we assume a valid query has form
+             * <dst node>.<src node>.<domain name>
+             *)
+            |(Q_A, Some([dst])) -> begin
+               lwt res = Sec.verify_packet st packet in 
+               let _ = printf "[dns] sig0 verified %s\n%!" (string_of_bool res) in 
+               if (not res) then
+                 let _ = printf "[dns] cannot verify sig0 dns request\n%!" in 
+                   return None
+               else
+                 let rr =
+                   List.find 
+                     ( fun a -> 
+                         match a.rdata with 
+                           | SIG _ -> true
+                           | _ -> false
+                     ) packet.additionals in
+                 let SIG(_, _, _, _, src, _) = rr.rdata in 
+                   match (compareVs (List.rev src) (List.rev dns_domain)) with
+                     | Some([src]) -> 
+                       let _ = eprintf "src:%s dst:%s dom:%s\n%!" src dst 
+                                 (Dns.Name.domain_name_to_string dns_domain) in
+                       lwt ret = ip_resp key sign_tag ~dst ~src ~domain:dns_domain in
+                        return(Some(ret))
+                     | Some _ -> 
+                         let _ = eprintf "[dns] signpost supports only a single layer\n%!" in 
+                           return (Some(from_trie))
+                     | None -> return (Some(from_trie)) 
+
+             end
+            |(Q_A, Some (_) ) -> 
+                let _ = eprintf "[dns] signpost for now supports only a single layer\n%!" in 
+                  return (Some(from_trie))
+            |_ -> 
+                let _ = eprintf "[dns] signpost for now supports only a single layer\n%!" in 
+                return (Some(from_trie))
+      end
   |_ -> eprintf "dns dns query: multiple questions\n%!"; return None
+  with ex ->
+    let _ = eprintf "[dns] error %s\n%!" (Printexc.to_string ex) in 
+      return None
 
 let rdata_to_zone_file_record rr =
   match rr.rdata with
@@ -110,7 +150,7 @@ let rdata_to_zone_file_record rr =
             sign ^ (String.make (4 - pad) '=') 
         in 
         let typ = Re_str.global_replace (Re_str.regexp "RR_") 
-                    "" (rr_type_to_string typ) in 
+                    "" (rr_type_to_string typ) in
         sprintf "%s. %s %ld RRSIG %s %d %d %ld %ld %ld %d %s. \"%s\"\n"
           (Dns.Name.domain_name_to_string rr.name)
           (rr_class_to_string rr.cls) rr.ttl
@@ -119,7 +159,7 @@ let rdata_to_zone_file_record rr =
           (Dns.Name.domain_name_to_string name) sign
     | _ -> failwith "Unsupported rr type"
 
-let load_dnskey_rr sign_tag key = 
+let load_dnskey_rr st sign_tag key = 
   let ret = ref [] in 
   let dir = (Unix.opendir (Config.conf_dir ^ "/authorized_keys/")) in
   let rec read_pub_key dir =  
@@ -138,7 +178,8 @@ let load_dnskey_rr sign_tag key =
                     name=([hostname] @ (our_domain_l));
                     cls=Dns.Packet.RR_IN;
                     ttl=120l;
-                    rdata;}) in 
+                    rdata;}) in
+                  let _ = Sec.add_anchor st rr in
                   return (ret := (!ret) @ [rr])
                       
               | None -> return ()
@@ -170,6 +211,9 @@ let load_key file =
     Sec.Rsa (Dnssec_rsa.new_rsa_key_from_param k) 
 
 let dns_t () =
+  lwt t = Dns_resolver.create () in 
+  lwt st = Sec.init_dnssec ~resolver:(Some(t)) () in
+
   lwt fd, src = Dns_server.bind_fd ~address:"0.0.0.0" ~port:5354 in
   let key  = load_key (Config.conf_dir ^ "/signpost.pem") in
   lwt Some(sign_dnskey) = Key.dnskey_rdata_of_pem_priv_file
@@ -186,7 +230,7 @@ let dns_t () =
       [zsk] in 
   lwt zone_keys = dnskey_of_pem_priv_file 
     (Config.conf_dir ^ "/signpost.pem")  in 
-  lwt dns_keys = load_dnskey_rr sign_tag key in
+  lwt dns_keys = load_dnskey_rr st sign_tag key in
   let zonebuf = sprintf "
 $ORIGIN %s. ;
 $TTL 0
@@ -208,7 +252,7 @@ i NS %s.
                   (rdata_to_zone_file_record sign) dns_keys in
   eprintf "%s\n%!" zonebuf;
   Dns.Zone.load_zone [] zonebuf;
-  Dns_server.listen ~fd ~src ~dnsfn:(dnsfn key sign_tag)
+  Dns_server.listen ~fd ~src ~dnsfn:(dnsfn st key sign_tag)
 
 module IncomingSignalling = SignalHandler.Make (ServerSignalling)
 
