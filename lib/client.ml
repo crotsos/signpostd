@@ -73,18 +73,18 @@ let forward_dns_query_to_ns resolv q =
   with ex -> 
     return (nxdomain) 
 
-let forward_dns_query_to_sp st dst q = 
+let forward_dns_query_to_sp st sig0 dst q = 
   (* Normalise the domain names to lower case *)
   let src = !node_name in 
   let host = dst::src::dns_domain in
-  lwt res = Sec.resolve st q.q_class q.q_type host in 
+  lwt res = Sec.resolve st ~sig0:(Some sig0) q.q_class q.q_type host in 
     match res with
       | Sec.Signed(res::_) -> 
           return (sp_rr_to_packet res (dst::dns_domain))
       | _ -> return(nxdomain)
 
   (* Figure out the response from a query packet and its question section *)
-let get_response resolv st q = 
+let get_response resolv st sig0 q = 
   let qnames = List.map String.lowercase q.q_name in
   eprintf "Q: %s\n%!" (String.concat " " qnames);
   match (compareVs (List.rev qnames) (List.rev dns_domain)) with
@@ -92,19 +92,19 @@ let get_response resolv st q =
     | (true, []) -> forward_dns_query_to_ns resolv q 
     | (true, src) when ((List.length src) = 1)-> 
         printf "Forward to sp %s\n%!" (String.concat "." src) ;
-        forward_dns_query_to_sp st (List.hd src) q
+        forward_dns_query_to_sp st sig0 (List.hd src) q
     | (true, src)  when ((List.length src) = 2) ->
         printf "sp mobile client %s\n%!" (String.concat "." src) ;
-        lwt ret = forward_dns_query_to_sp st (List.hd src) q in 
+        lwt ret = forward_dns_query_to_sp st sig0 (List.hd src) q in 
         let _ = Lwt.ignore_result (register_mobile_host (List.nth src 1)) in 
           return (ret)
     | (_, _) -> failwith "XXX Error\n%!"
 
-let dnsfn resolv st ~src ~dst packet =
+let dnsfn resolv st sig0 ~src ~dst packet =
   match packet.questions with
     | [] -> eprintf "bad dns query: no questions\n%!"; return None
     | q::_ -> 
-        lwt ret = get_response resolv st q in
+        lwt ret = get_response resolv st sig0 q in
           return (Some ret)
 
 let dns_t () =
@@ -116,6 +116,17 @@ let dns_t () =
   lwt t = Dns_resolver.create ~config () in 
   lwt st = Sec.init_dnssec ~resolver:(Some(t)) () in
 
+  let key  = 
+    Dnssec_rsa.new_rsa_key_from_param 
+      (Key.load_rsa_priv_key 
+         (Config.conf_dir ^ "/signpost.pem")) in
+  lwt Some(sign_dnskey) = Key.dnskey_rdata_of_pem_priv_file
+                       (Config.conf_dir ^ "/signpost.pem")
+                       257 Dns.Packet.RSASHA1 in 
+(*  let _ = Sec.add_anchor st sign_dnskey in *)
+  let sign_tag = Sec.get_dnskey_tag sign_dnskey in
+  let sig0 = (Dns.Packet.RSASHA1, sign_tag, (Sec.Rsa key), 
+              [(!node_name)]@ dns_domain) in
   lwt p = Dns_resolver.resolve t Q_IN Q_DNSKEY 
             dns_domain in
   let rec add_root_dnskey = function
@@ -128,7 +139,7 @@ let dns_t () =
   let _ = add_root_dnskey p.answers in 
   (* local nameserver *)
   lwt fd, src = Dns_server.bind_fd ~address:"0.0.0.0" ~port:53 in
-    Dns_server.listen ~fd ~src ~dnsfn:(dnsfn resolv st)
+    Dns_server.listen ~fd ~src ~dnsfn:(dnsfn resolv st sig0)
   with ex ->
     return (eprintf "[dns] error: %s\n%!" (Printexc.to_string ex))
 
