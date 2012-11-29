@@ -73,17 +73,20 @@ let forward_dns_query_to_ns resolv q =
   with ex -> 
     return (nxdomain) 
 
-let forward_dns_query_to_sp st sig0 dst q = 
+let forward_dns_query_to_sp st sig0 dst q =
   (* Normalise the domain names to lower case *)
-  let src = !node_name in 
-  let host = dst::dns_domain in
-  let _ = printf "getting sig0 packet yeah....\n%!" in 
-  lwt res = Sec.resolve st ~sig0:(Some sig0) 
-              q.q_class q.q_type host in 
-    match res with
-      | Sec.Signed(res::_) -> 
-          return (sp_rr_to_packet res (dst::dns_domain))
-      | _ -> return(nxdomain)
+  try_lwt 
+    let src = !node_name in 
+    let host = dst::dns_domain in
+    let _ = printf "getting sig0 packet yeah....\n%!" in 
+    lwt res = Sec.resolve st ~sig0:(Some sig0) 
+                q.q_class q.q_type host in 
+      match res with
+        | Sec.Signed(res::_) -> 
+            return (sp_rr_to_packet res (dst::dns_domain))
+        | _ -> return(nxdomain)
+  with exn -> 
+    return (nxdomain) 
 
   (* Figure out the response from a query packet and its question section *)
 let get_response resolv st sig0 q = 
