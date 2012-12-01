@@ -24,9 +24,15 @@ exception Tor_error
 
 let name () = "tor"
 
+let weight _ _ = 10
+
 (******************************************************
  * connection method
  ******************************************************)
+
+let test _ _ = 
+  return true
+
 let connect a b =
   (* Trying to see if connectivity is possible *)
   eprintf "[proxy] enabling between tor on %s \n%!" a;
@@ -42,7 +48,11 @@ let connect a b =
       Printf.printf "[socks] client fail %s\n%!" a;
 (*       raise Tor_error *)
       return false
-  
+let enable _ _ = return true
+let disable _ _ = return true 
+
+let teardown a b = 
+  return true
 
 (* ******************************************
  * A tactic to forward all traffic to the tor proxy
