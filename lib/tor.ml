@@ -18,6 +18,10 @@
 open Pktgen
 open Lwt
 open Lwt_list
+open Lwt_process
+
+open Config
+
 open Printf
 
 module OP = Openflow.Ofpacket
@@ -25,6 +29,7 @@ module OC = Openflow.Ofcontroller
 module OE = OC.Event
 
 module Manager = struct
+  exception TorError of string
   exception SocksError of string
   exception MissingSocksArgumentError
 
@@ -51,10 +56,10 @@ module Manager = struct
 
   type conn_db_type = {
     http_conns : (int, conn_type) Hashtbl.t;
-    mutable process_pid : int option;
+    mutable process : process_none option;
   }
 
-  let conn_db = {http_conns=(Hashtbl.create 0);process_pid=None;}
+  let conn_db = {http_conns=(Hashtbl.create 0);process=None;}
 
 
   let tor_port = 9050
@@ -63,28 +68,37 @@ module Manager = struct
    * testing code
    * TODO: do we need any tests?
    *********************************************************************)
-  let test _ _ =
-    return ("OK")
+  let restart_tor () = 
+    let pid = 
+      match (conn_db.process) with
+        | None -> 
+            let pid = open_process_none 
+                        (dir ^ "client_tactics/tor/tor.sh", 
+                         [|dir ^ "/client_tactics/tor/tor.sh"; 
+                           tmp_dir;|]) in 
+            let _ = conn_db.process <- Some (pid) in 
+              pid
+        | Some pid -> pid
+    in
+      pid#pid
+
+  
+  let test kind params =
+    match kind with
+      | "server_start" -> begin
+          let _ = restart_tor () in 
+          let fd = open_in (tmp_dir ^ "/hostname") in 
+          let name = input_line fd in 
+          let _ = close_in fd in 
+            return name
+        end
+      | "connect" -> return "true"
+    | _ -> raise(TorError(sprintf "Unsupported action %s" kind))
+
 
   (*********************************************************************
    * Connection code
    **********************************************************************)
-  let restart_tor () = 
-    let cmd = "tor" in
-    lwt _ = Lwt_unix.system ("killall " ^ cmd) in 
-    let pid_file = "/tmp/tor.pid" in 
-    let conf_file = Printf.sprintf "%s/client_tactics/tor/tor.conf" Config.dir in
-    let _ = Unix.create_process cmd [| cmd; "-f"; conf_file; |] 
-              Unix.stdin Unix.stdout Unix.stderr in
-    lwt _ = Lwt_unix.sleep 2.0 in 
-    let fd = open_in pid_file in
-    let pid_buf = input_line fd in 
-    let _ = close_in fd in 
-    let pid = int_of_string pid_buf in 
-      conn_db.process_pid <- Some(pid);
-      Printf.printf "[socks] process created with pid %d...\n" pid;
-      return(pid)
-  
   let load_socks_sockets pid = 
     let fd_dir = (Printf.sprintf "/proc/%d/fd/" pid) in 
       let files = Sys.readdir fd_dir in 
@@ -99,10 +113,7 @@ module Manager = struct
           
    
   let is_tor_conn ip port = 
-    lwt pid = match conn_db.process_pid with 
-      | None -> restart_tor ()
-      | Some(pid) -> return (pid)
-    in
+    let pid = restart_tor () in
 
     let socket_ids = load_socks_sockets pid in 
 (*     List.iter (fun fd -> Printf.printf "%d\n%!" fd ) socket_ids; *)
@@ -363,12 +374,14 @@ module Manager = struct
 
   let connect kind _ =
     match kind with 
-      | "start" -> 
-          (lwt _ = match conn_db.process_pid with
+      | "start" -> begin
+(*          (lwt _ = match conn_db.process with
             | None -> restart_tor () 
             | Some(pid) -> return (pid)
-          in
-          return ("OK"))
+          in*)
+          let _ = restart_tor () in 
+          return ("OK")
+        end
       | "forward" ->
           Printf.printf "[socks] forwarding started\n%!";
           let flow_wild = OP.Wildcards.({
@@ -405,13 +418,25 @@ module Manager = struct
       | _ -> 
           Printf.eprintf "[socks] Invalid connection kind %s \n%!" kind;
           raise (SocksError "Invalid connection kind")
-  
+ 
+(**
+  * enable event
+  * *)
+  let enable _ _ = 
+    return "true"
+
+(*
+ * disable tactic
+ * *)
+
+  let disable _ _ = 
+    return "true"
 
   (************************************************************************
    *         Tearing down connection code
    ************************************************************************)
-  let teardown _ =
-    true
+  let teardown _ _ =
+    return "true"
 
 
 end

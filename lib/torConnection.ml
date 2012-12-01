@@ -26,15 +26,41 @@ let name () = "tor"
 
 let weight _ _ = 10
 
+type tor_state_type = {
+  (* a cache for the domain name of  *)
+  conns :(string, string) Hashtbl.t;
+}
+
+let state = {conns=(Hashtbl.create 16);}
+
 (******************************************************
  * connection method
  ******************************************************)
 
-let test _ _ = 
-  return true
+let test a b = 
+  lwt [a_domain; b_domain] = 
+    Lwt_list.map_p 
+      ( fun a ->
+          if (Hashtbl.mem state.conns a ) then 
+          Nodes.send_blocking a 
+            (create_tactic_request "tor" 
+               TEST "server_start" [])
+          else
+            return (Hashtbl.find state.conns a)
+      ) [a; b] in 
+  lwt ret = 
+    Lwt_list.map_p 
+      ( fun (a, domain) -> 
+          Nodes.send_blocking a 
+            (create_tactic_request "tor" 
+               TEST "connect" [a; domain; (string_of_int SignalHandler.echo_port);])
+      ) [(b, a_domain); (a, b_domain)] in 
+  match ret with
+    | "true"::"true"::[] -> return true
+    | _ -> return false
 
-let connect a b =
-  (* Trying to see if connectivity is possible *)
+let connect a b = return true
+(*  (* Trying to see if connectivity is possible *)
   eprintf "[proxy] enabling between tor on %s \n%!" a;
   let rpc = (create_tactic_request "tor" 
                CONNECT "start" []) in
@@ -47,7 +73,7 @@ let connect a b =
     with exn -> 
       Printf.printf "[socks] client fail %s\n%!" a;
 (*       raise Tor_error *)
-      return false
+      return false*)
 let enable _ _ = return true
 let disable _ _ = return true 
 
