@@ -33,7 +33,7 @@ SocksListenAddress 0.0.0.0 # accept connections only from localhost
 ## may provide sensitive information to an attacker who obtains the logs.
 ##
 ## Send all messages of level 'notice' or higher to /var/log/tor/notices.log
-Log notice file $dir$/tmp/notices.log
+Log notice file $dir$/notices.log
 ## Send every possible message to /var/log/tor/debug.log
 #Log debug file /var/log/tor/debug.log
 ## Use the system log instead of Tor's logfiles
@@ -67,7 +67,7 @@ ControlPort 9051
 ## HiddenServicePort x y:z says to redirect requests on port x to the
 ## address y:z.
 
-HiddenServiceDir $dir$/tmp/
+HiddenServiceDir $dir$
 HiddenServicePort 10000 127.0.0.1:10000
 
 #HiddenServiceDir /var/lib/tor/other_hidden_service/
@@ -168,5 +168,5 @@ HiddenServicePort 10000 127.0.0.1:10000
 #BridgeRelay 1
 #ExitPolicy reject *:*
 
-PidFile $dir$/tmp/tor.pid
+PidFile $dir$/tor.pid
 

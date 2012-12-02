@@ -86,7 +86,7 @@ let teardown a b =
 
 let handle_request action method_name arg_list =
   let open Rpc in
-  try
+  try_lwt
     match action with
       | TEST ->
         lwt ip = Tor.Manager.test method_name arg_list in
@@ -105,7 +105,7 @@ let handle_request action method_name arg_list =
          lwt ip = Tor.Manager.teardown method_name arg_list in
             return(Sp.ResponseValue ip)           
     with e -> 
-      return (Sp.ResponseError "provxy_connect") 
+      return (Sp.ResponseError (Printexc.to_string e)) 
  
 let handle_notification action method_name arg_list =
   eprintf "Tor tactic doesn't handle notifications\n%!";
