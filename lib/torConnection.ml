@@ -42,11 +42,11 @@ let test a b =
     Lwt_list.map_p 
       ( fun a ->
           if (Hashtbl.mem state.conns a ) then 
-          Nodes.send_blocking a 
-            (create_tactic_request "tor" 
-               TEST "server_start" [])
-          else
             return (Hashtbl.find state.conns a)
+          else
+            Nodes.send_blocking a 
+              (create_tactic_request "tor" 
+                 TEST "server_start" [])
       ) [a; b] in 
   lwt ret = 
     Lwt_list.map_p 
