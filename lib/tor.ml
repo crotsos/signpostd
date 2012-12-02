@@ -57,17 +57,15 @@ module Manager = struct
   type conn_db_type = {
     http_conns : (int, conn_type) Hashtbl.t;
     mutable process : process_none option;
+    hosts : (int32, string) Hashtbl.t; 
   }
 
-  let conn_db = {http_conns=(Hashtbl.create 0);process=None;}
+  let conn_db = 
+    {http_conns=(Hashtbl.create 0);process=None;hosts=(Hashtbl.create 32); }
 
 
   let tor_port = 9050
-  
-  (*********************************************************************
-   * testing code
-   * TODO: do we need any tests?
-   *********************************************************************)
+
   let restart_tor () = 
     let pid = 
       match (conn_db.process) with
@@ -82,23 +80,6 @@ module Manager = struct
     in
       pid#pid
 
-  
-  let test kind params =
-    match kind with
-      | "server_start" -> begin
-          let _ = restart_tor () in 
-          let fd = open_in (tmp_dir ^ "/hostname") in 
-          let name = input_line fd in 
-          let _ = close_in fd in 
-            return name
-        end
-      | "connect" -> return "true"
-    | _ -> raise(TorError(sprintf "Unsupported action %s" kind))
-
-
-  (*********************************************************************
-   * Connection code
-   **********************************************************************)
   let load_socks_sockets pid = 
     let fd_dir = (Printf.sprintf "/proc/%d/fd/" pid) in 
       let files = Sys.readdir fd_dir in 
@@ -111,16 +92,20 @@ module Manager = struct
         ) files in 
         List.filter (fun fd -> (fd <> 0)) (Array.to_list sock_array) 
           
-   
+
+(*
+ *  openflow comtrol methods
+ * *)
   let is_tor_conn ip port = 
     let pid = restart_tor () in
 
     let socket_ids = load_socks_sockets pid in 
 (*     List.iter (fun fd -> Printf.printf "%d\n%!" fd ) socket_ids; *)
     let found = ref false in
-    let lookup_string = Printf.sprintf "%s:%04X" (Net_cache.Routing.string_rev 
-                                                       (Printf.sprintf "%08lX" ip)) 
-                          port in 
+    let lookup_string = 
+      sprintf "%s:%04X" 
+        (Net_cache.Routing.string_rev (sprintf "%08lX" ip)) 
+        port in 
     let tcp_conn = open_in "/proc/net/tcp" in 
 
       let rec parse_tcp_conn tcp_conn = 
@@ -141,77 +126,67 @@ module Manager = struct
       let _ = input_line tcp_conn in 
         let _ = parse_tcp_conn tcp_conn in  
           close_in tcp_conn;
-          return (!found)
-  
+          return (!found)  
+
+
+
   let ssl_send_conect_req controller dpid conn m dst_port = 
     let (_, gw, _) = Net_cache.Routing.get_next_hop conn.dst_ip in
-    
-(*
-    (* ack the the SYNACK from socks *)
-    let pkt = gen_server_ack 
-                (Int32.sub conn.src_isn
-                   (Int32.of_int ((String.length conn.data) - 1) ) )
-                (Int32.add conn.dst_isn 1l) 
-                conn.src_mac conn.dst_mac
-                gw conn.src_ip
-                m.OP.Match.tp_src dst_port 0xffff in 
-    let bs = (OP.Packet_out.packet_out_to_bitstring 
-                (OP.Packet_out.create ~buffer_id:(-1l)
-                   ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
-                   ~data:pkt ~in_port:(OP.Port.No_port) () )) in  
-    lwt _ = OC.send_of_data controller dpid bs in
-
- *)
   (* SYNACK the client in order to establish the
      * connection *)
-    let pkt = gen_server_synack 
-                (Int32.add conn.dst_isn 8l ) (* 68 bytes for http reply *)
-                (Int32.add conn.src_isn 1l)
-                conn.src_mac conn.dst_mac 
-                conn.dst_ip conn.src_ip
-                dst_port conn.dst_port in 
-    let bs = OP.marshal_and_sub 
-               (OP.Packet_out.marshal_packet_out
-                (OP.Packet_out.create ~buffer_id:(-1l)
-                   ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
-                   ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-               (Lwt_bytes.create 4096) in  
-    lwt _ = OC.send_of_data controller dpid bs in 
-
-  (* Send an http request to setup the persistent connection to the ssl server *)
-  let pkt = (gen_tcp_data_pkt 
-               (Int32.sub conn.src_isn
-                  (Int32.of_int ((Cstruct.len conn.data)/ - 1) ))
-               (Int32.add conn.dst_isn 1l)
-               conn.src_mac conn.dst_mac
-               gw conn.src_ip
-               m.OP.Match.tp_src dst_port conn.data) in 
-  let bs = OP.marshal_and_sub 
-             (OP.Packet_out.marshal_packet_out 
+    let pkt = 
+      gen_server_synack
+        (* TODO Add a counter for the domain name *)
+        (Int32.add conn.dst_isn 8l ) (* 68 bytes for http reply *)
+        (Int32.add conn.src_isn 1l)
+        conn.src_mac conn.dst_mac 
+        conn.dst_ip conn.src_ip
+        dst_port conn.dst_port in 
+    lwt _ = 
+      OC.send_of_data controller dpid
+        (OP.marshal_and_sub 
+           (OP.Packet_out.marshal_packet_out
               (OP.Packet_out.create ~buffer_id:(-1l)
                  ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
-                ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-             (Lwt_bytes.create 4096) in  
-    OC.send_of_data controller dpid bs
+                 ~data:pkt ~in_port:(OP.Port.No_port) () )) 
+           (Lwt_bytes.create 4096)) in  
+
+  (* Send an http request to setup the persistent connection to the ssl server *)
+  let pkt = 
+    gen_tcp_data_pkt 
+      (Int32.sub conn.src_isn
+         (Int32.of_int ((Cstruct.len conn.data)/ - 1) ))
+      (Int32.add conn.dst_isn 1l)
+      conn.src_mac conn.dst_mac
+      gw conn.src_ip
+      m.OP.Match.tp_src dst_port conn.data in 
+    OC.send_of_data controller dpid
+      (OP.marshal_and_sub 
+         (OP.Packet_out.marshal_packet_out 
+            (OP.Packet_out.create ~buffer_id:(-1l)
+               ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
+               ~data:pkt ~in_port:(OP.Port.No_port) () )) 
+         (Lwt_bytes.create 4096))
 
   let ssl_complete_flow controller dpid conn m dst_port = 
     let (_, gw, _) = Net_cache.Routing.get_next_hop conn.dst_ip in
     
     (* ack the socks connect http reply *)
-    let pkt = gen_server_ack 
-                (Int32.add conn.src_isn 1l)
-                (Int32.add conn.dst_isn 9l) 
-                conn.src_mac conn.dst_mac
-                gw conn.src_ip
-                m.OP.Match.tp_src dst_port 0xffff in 
-    let bs = 
-      OP.marshal_and_sub
-        (OP.Packet_out.marshal_packet_out
-           (OP.Packet_out.create ~buffer_id:(-1l)
-              ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
-              ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-        (Lwt_bytes.create 4096) in  
-    lwt _ = OC.send_of_data controller dpid bs in
+    let pkt = 
+      gen_server_ack 
+        (Int32.add conn.src_isn 1l)
+        (Int32.add conn.dst_isn 9l) 
+        conn.src_mac conn.dst_mac
+        gw conn.src_ip
+        m.OP.Match.tp_src dst_port 0xffff in 
+    lwt _ = 
+      OC.send_of_data controller dpid
+        (OP.marshal_and_sub
+           (OP.Packet_out.marshal_packet_out
+              (OP.Packet_out.create ~buffer_id:(-1l)
+                 ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
+                 ~data:pkt ~in_port:(OP.Port.No_port) () )) 
+        (Lwt_bytes.create 4096)) in  
 
     let pkt = gen_server_ack 
                 (Int32.add conn.dst_isn 8l ) (* 68 bytes for http reply *)
@@ -220,14 +195,13 @@ module Manager = struct
                 conn.dst_ip conn.src_ip
                 dst_port conn.dst_port 0xffff in 
     let bs = 
-      OP.marshal_and_sub
-      (OP.Packet_out.marshal_packet_out
-         (OP.Packet_out.create ~buffer_id:(-1l)
-            ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
-            ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-    (Lwt_bytes.create 4096) in  
-    lwt _ = OC.send_of_data controller dpid bs in
-
+      OC.send_of_data controller dpid
+        (OP.marshal_and_sub
+           (OP.Packet_out.marshal_packet_out
+              (OP.Packet_out.create ~buffer_id:(-1l)
+                 ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
+                 ~data:pkt ~in_port:(OP.Port.No_port) () )) 
+           (Lwt_bytes.create 4096)) in  
     
   (* Setup the appropriate flows in the openflow flow table *)
   let actions = [
@@ -262,7 +236,70 @@ module Manager = struct
   let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
              (Lwt_bytes.create 4096) in
     OC.send_of_data controller dpid bs 
-    
+
+  let init_tcp_connection controller dpid m src_port dst_port data =
+    let (_, gw, _) = 
+      Net_cache.Routing.get_next_hop
+        m.OP.Match.nw_dst in 
+    let name = Hashtbl.find conn_db.hosts m.OP.Match.nw_dst in 
+    let _ = 
+      printf "[socks] non-socks coonection on port %d\n%!" 
+        src_port in
+    let isn = get_tcp_sn data in
+    let req = Lwt_bytes.create 64 in 
+    let _ = Cstruct.set_uint8 req 0 4 in 
+    let _ = Cstruct.set_uint8 req 1 1 in 
+    let _ = Cstruct.BE.set_uint16 req 2 dst_port in 
+    let _ = Cstruct.BE.set_uint32 req 4 m.OP.Match.nw_dst in 
+    let _ = Cstruct.set_uint8 req 8 0 in 
+    let _ = Cstruct.set_buffer name 0 req 9  (String.length name) in 
+    let req = Cstruct.sub req 0 (9 + (String.length name)) in 
+    let mapping = 
+      {src_mac=m.OP.Match.dl_src; dst_mac=m.OP.Match.dl_dst; 
+       src_ip=m.OP.Match.nw_src; dst_ip = m.OP.Match.nw_dst;
+       dst_port=dst_port; ssl_state=SSL_SERVER_INIT;
+       src_isn=isn;dst_isn=0l; data=req;} in
+    let _ = Hashtbl.add conn_db.http_conns src_port mapping in 
+    (* establishing connection with socks socket *)
+    let pkt = 
+      gen_server_syn data
+        (Int32.sub isn (Int32.of_int (Cstruct.len mapping.data) ))
+        mapping.src_mac mapping.dst_mac
+        mapping.src_ip gw tor_port in 
+      
+      OC.send_of_data controller dpid  
+        (OP.marshal_and_sub
+           (OP.Packet_out.marshal_packet_out 
+              (OP.Packet_out.create ~buffer_id:(-1l)
+                 ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
+                 ~data:pkt ~in_port:(OP.Port.No_port) () )) 
+           (Lwt_bytes.create 4096))
+
+  let handle_tor_incoming_pkt controller dpid m dst_port data = 
+    try_lwt 
+      let conn = Hashtbl.find conn_db.http_conns dst_port in
+        match conn.ssl_state with
+          | SSL_SERVER_INIT -> 
+              let isn = get_tcp_sn data in 
+              let _ = conn.dst_isn <- isn in
+              let _ = conn.ssl_state <- SSL_CLIENT_INIT in 
+                ssl_send_conect_req controller dpid conn m dst_port 
+          | SSL_CLIENT_INIT -> 
+              let payload_len = 
+                Cstruct.len (get_tcp_packet_payload data) in
+                if (payload_len > 0) then (
+                  let _ = conn.ssl_state <- SSL_COMPLETE in 
+                    ssl_complete_flow controller dpid conn m dst_port 
+                ) else (
+                  return (Printf.printf "[socks] Ignoring ACK packet\n%!")
+                )
+          | SSL_COMPLETE -> 
+              return (Printf.printf "[socks] Connection completed, ignoring pkt\n%!");
+          | _ ->
+              let _ = Printf.printf "state not implemented\n%!" in 
+                return ()
+    with Not_found ->
+      return(eprintf "[openflow] dropping packet. for port %d %d\n%!" tor_port dst_port) 
   
   let http_pkt_in_cb controller dpid evt = 
     let (in_port, buffer_id, data, _) = 
@@ -271,107 +308,90 @@ module Manager = struct
         | _ -> invalid_arg "bogus datapath_join event match!"
     in
     let m = OP.Match.raw_packet_to_match in_port data in
-    let _ = 
       match (m.OP.Match.tp_src, m.OP.Match.tp_dst) with
-        | (9050, dst_port) ->
-            (try 
-               let conn = Hashtbl.find conn_db.http_conns dst_port in
-                 match conn.ssl_state with
-                   | SSL_SERVER_INIT -> ( 
-                       let isn = get_tcp_sn data in 
-                         conn.dst_isn <- isn;
-                         conn.ssl_state <- SSL_CLIENT_INIT;
-                         ssl_send_conect_req controller dpid conn m dst_port )
-                   | SSL_CLIENT_INIT -> (
-                       let payload_len = 
-                         Cstruct.len (get_tcp_packet_payload data) in
-                         if (payload_len > 0) then (
-                           conn.ssl_state <- SSL_COMPLETE;
-                           ssl_complete_flow controller dpid conn m dst_port 
-                         ) else (
-                           return (Printf.printf "[socks] Ignoring ACK packet\n%!")
-                        ))
-                   | SSL_COMPLETE -> (
-                       return (Printf.printf "[socks] Connection has been completed, ignoring flow \n%!");
-                     )
-                   | _ ->
-                       let _ = Printf.printf "state not implemented\n%!" in 
-                         return ()
-             with Not_found ->
-               return(eprintf "[openflow] dropping incoming packet. No state found for port %d %d\n%!" tor_port dst_port) 
-            )
-        | (src_port, dst_port) -> (
+        | (9050, dst_port) -> 
+            handle_tor_incoming_pkt controller dpid m dst_port data
+        | (src_port, dst_port) -> begin
             lwt is_tor = is_tor_conn m.OP.Match.nw_src src_port in 
             let state_found = (Hashtbl.mem conn_db.http_conns src_port) in 
               match (is_tor, state_found) with
                 | (true, _) ->
-                    (Printf.printf "[socks] a socks connection on port %d\n%!" 
-                      src_port;
-                    try_lwt
-                      Printf.printf "Looking up mac %s\n%!" 
-                      (Net_cache.string_of_mac m.OP.Match.dl_src);
-                      let port_id = match (Net_cache.Port_cache.port_id_of_mac 
+                    let port_id = 
+                      match (Net_cache.Port_cache.port_id_of_mac 
                                m.OP.Match.dl_dst) with
                         | Some(port_id) -> OP.Port.port_of_int port_id
                         | None -> OP.Port.All
-                      in
-                      let pkt = OP.Flow_mod.create m 0_L OP.Flow_mod.ADD 
-                                  ~buffer_id:(Int32.to_int buffer_id)
-                                  [OP.Flow.Output(port_id, 2000);] 
-                                  () in 
-                      let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
-                      (Lwt_bytes.create 4096) in
-                        OC.send_of_data controller dpid bs
+                    in
+                    let pkt = 
+                      OP.Flow_mod.create m 0_L OP.Flow_mod.ADD 
+                        ~buffer_id:(Int32.to_int buffer_id)
+                        [OP.Flow.Output(port_id, 2000);]  () in 
+                      OC.send_of_data controller dpid
+                        (OP.marshal_and_sub 
+                           (OP.Flow_mod.marshal_flow_mod pkt)
+                           (Lwt_bytes.create 4096))
+                | (false, true) -> 
+                    return (printf "[socks] non-socks established  %d\n%!" src_port)
+                | (_, false) -> 
+                    init_tcp_connection controller dpid m src_port 
+                      dst_port data
+          end
 
-                    with ex -> 
-                      return (Printf.printf "[socks] error: %s\n%!" 
-                                (Printexc.to_string ex)) )
-                | (false, true) -> ( 
-                    Printf.printf "[socks] non-socks established connection %d\n%!" 
-                      src_port;
-                    return () )
-                | (_, false) -> (
-                     let (_, gw, _) = Net_cache.Routing.get_next_hop
-                                        m.OP.Match.nw_dst in 
-                    let _ = Printf.printf 
-                              "[socks] non-socks coonection on port %d\n%!" 
-                              src_port in
-(*                     let Some(dst_mac,_, _ ) = Net_cache.Switching.ip_of_mac
- *                     gw in  *)
-                    let isn = get_tcp_sn data in
-                    let req = Lwt_bytes.create 9 in 
-                    let _ = Cstruct.set_uint8 req 0 4 in 
-                    let _ = Cstruct.set_uint8 req 1 1 in 
-                    let _ = Cstruct.BE.set_uint16 req 2 dst_port in 
-                    let _ = Cstruct.BE.set_uint32 req 4 m.OP.Match.nw_dst in 
-                    let mapping = {src_mac=m.OP.Match.dl_src; dst_mac=m.OP.Match.dl_dst; 
-                                   src_ip=m.OP.Match.nw_src; dst_ip = m.OP.Match.nw_dst;
-                                   dst_port=dst_port; 
-                                   ssl_state=SSL_SERVER_INIT;
-                                   src_isn=isn;dst_isn=0l; data=req;} in
-                      Hashtbl.add conn_db.http_conns src_port mapping;
-                      (* establishing connection with socks socket *)
-                      let pkt = gen_server_syn data
-                                  (Int32.sub isn
-                                     (Int32.of_int 
-                                         (Cstruct.len mapping.data) ))
-                                  mapping.src_mac mapping.dst_mac
-                                  mapping.src_ip gw tor_port in 
-                      let bs = 
-                        OP.marshal_and_sub
-                          (OP.Packet_out.marshal_packet_out 
-                             (OP.Packet_out.create ~buffer_id:(-1l)
-                                ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
-                                ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-                          (Lwt_bytes.create 4096) in  
-                        OC.send_of_data controller dpid bs 
-                  ) 
-          )
-        | (_, _) ->
-            return (eprintf "[openflow] ERROR: ")
-    in
-      return ()
+  (*********************************************************************
+   * testing code
+   * TODO: do we need any tests?
+   *********************************************************************)
+   let run_client port ip =
+     let buf = String.create 1500 in
+     let sock = Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM
+                  (Unix.getprotobyname "udp").Unix.p_proto in   
+     let ipaddr = Unix.inet_addr_of_string (Uri_IP.ipv4_to_string ip) in
+     let portaddr = Unix.ADDR_INET (ipaddr, port) in
+     let pkt_bitstring = BITSTRING {
+       ip:32:int;port:16; (String.length (Nodes.get_local_name ())):16;
+       (Nodes.get_local_name ()):-1:string} in 
+    let pkt = Bitstring.string_of_bitstring pkt_bitstring in 
+     lwt _ = Lwt_unix.sendto sock pkt 0 
+                  (String.length pkt) [] portaddr in 
+     try_lwt 
+       lwt (len, _) = Lwt_unix.recvfrom sock buf 0 1500 [] in
+         return (len > 0)
+     with err -> 
+       eprintf "[tor] client test error: %s\n%!" 
+         (Printexc.to_string err);
+        raise (TorError(Printexc.to_string err))
+ 
+  let test kind args =
+    match kind with
+      | "server_start" -> begin
+          let _ = restart_tor () in 
+          let fd = open_in (tmp_dir ^ "/hostname") in 
+          let name = input_line fd in 
+          let _ = close_in fd in 
+            return name
+        end
+      | "connect" ->
+          let ip , domain, port = 
+            match args with
+              | ip::domain::port::_ ->
+                  ((Uri_IP.string_to_ipv4 ip), domain, (int_of_string port))
+              | _ -> raise (TorError "Insufficient args")
+          in
+          let _ = Hashtbl.replace conn_db.hosts ip domain in
+          lwt _ = 
+            Sp_controller.register_handler_new
+              ~dl_type:(Some 0x0800) ~nw_proto:(Some(char_of_int 6)) 
+              ~nw_dst:(Some ip) ~nw_dst_len:(0) ~tp_dst:(Some port)
+              http_pkt_in_cb in 
+          lwt ret = run_client port ip in 
+            return (string_of_bool ret)
+    | _ -> raise(TorError(sprintf "Unsupported action %s" kind))
 
+
+  (*********************************************************************
+   * Connection code
+   **********************************************************************)
+   
   let connect kind _ =
     match kind with 
       | "start" -> begin

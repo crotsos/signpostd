@@ -33,18 +33,11 @@ type mac_switch = {
   switch: OP.datapath_id;
 }
 
-type pkt_in_cb_struct = {
-  flow_match : OP.Match.t;
-  cb: (state -> OP.datapath_id -> (OP.Port.t * int32 * Bitstring.t * OP.datapath_id) 
-       -> unit Lwt.t);
-}
-
 type switch_state = {
 (*   mutable mac_cache: (mac_switch, OP.Port.t) Hashtbl.t; *)
   mutable mac_cache: (OP.eaddr, OP.Port.t) Hashtbl.t; 
   mutable dpid: OP.datapath_id;
   mutable of_ctrl: OC.t option;
-  mutable pkt_in_cb_cache : pkt_in_cb_struct list;
   cb_register : (OP.Match.t, (OC.t -> OP.datapath_id -> 
                    OE.e -> unit Lwt.t) ) Hashtbl.t;
 }
@@ -56,7 +49,6 @@ let sp = Printf.sprintf
 let switch_data = { 
   mac_cache = Hashtbl.create 0;
   dpid = 0L; of_ctrl =None;
-  pkt_in_cb_cache = [];
   cb_register = (Hashtbl.create 64);
 } 
 
@@ -370,6 +362,49 @@ let setup_flow ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) ?(dl_dst=None)
                (Lwt_bytes.create 4096)) in 
     return()
 
+let register_handler_new  ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) 
+      ?(dl_dst=None)
+      ?(dl_type=None) ?(nw_proto=None) ?(tp_dst=None) ?(tp_src=None)
+      ?(nw_dst=None) ?(nw_dst_len=32) ?(nw_src=None) ?(nw_src_len=32)
+      ?(dl_vlan_pcp=None) ?(nw_tos=None)
+      cb =
+  let controller = 
+    match switch_data.of_ctrl with 
+      | None -> failwith "controller not yet connected"
+      | Some(v) -> v
+  in 
+  let dpid = switch_data.dpid  in          
+  let flow_wild = OP.Wildcards.({
+    in_port=(is_none in_port); dl_vlan=(is_none dl_vlan); 
+    dl_src=(is_none dl_src); dl_dst=(is_none dl_dst);
+    dl_type=(is_none dl_type); nw_proto=(is_none nw_proto); 
+    tp_dst=(is_none tp_dst); tp_src=(is_none tp_src);
+    nw_dst=(char_of_int nw_dst_len); nw_src=(char_of_int nw_src_len);
+    dl_vlan_pcp=(is_none dl_vlan_pcp); nw_tos=(is_none nw_tos);}) in
+
+  let flow = OP.Match.create_flow_match flow_wild 
+               ~in_port:(option_default in_port 0)
+               ~dl_src:(option_default dl_src "\x00\x00\x00\x00\x00\x00")
+               ~dl_dst:(option_default dl_dst "\x00\x00\x00\x00\x00\x00")
+               ~dl_vlan:(option_default dl_vlan 0xffff)
+               ~dl_vlan_pcp:(option_default dl_vlan_pcp (char_of_int 0))
+               ~dl_type:(option_default dl_type 0)
+               ~nw_tos:(option_default nw_tos (char_of_int 0))
+               ~nw_proto:(option_default nw_proto (char_of_int 0))
+               ~nw_src:(option_default nw_src 0l)
+               ~nw_dst:(option_default nw_dst 0l)
+               ~tp_src:(option_default tp_src 0)
+               ~tp_dst:(option_default tp_dst 0) () in 
+  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
+              ~idle_timeout:0 ~hard_timeout:0
+             ~buffer_id:(-1) ~priority:100
+              [OP.Flow.Output(OP.Port.Controller, 150)] () in 
+ let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+            (Lwt_bytes.create 4096) in
+ lwt _ = OC.send_of_data controller dpid bs in 
+   return (Hashtbl.replace switch_data.cb_register flow cb)
+
+
 let port_status_cb controller dpid evt =
   let _ = 
     match evt with
@@ -428,7 +463,6 @@ let unregister_handler flow_def _ =
   in
     return (Hashtbl.iter lookup_flow switch_data.cb_register)
 
-
 let add_entry_in_hashtbl mac_cache ix in_port = 
   if not (Hashtbl.mem mac_cache ix ) then
       Hashtbl.add mac_cache ix in_port
@@ -476,7 +510,7 @@ let switch_packet_in_cb controller dpid buffer_id m data in_port =
         let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
                    (Lwt_bytes.create 4096) in
           OC.send_of_data controller dpid bs
-      )
+          )
 
 let lookup_flow of_match =
   (* Check the wilcard card table *)
