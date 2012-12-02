@@ -86,21 +86,27 @@ let teardown a b =
 
 let handle_request action method_name arg_list =
   let open Rpc in
-  match action with
-  | TEST ->
-      eprintf "[socks] doesn't support test action\n%!";
-      return(Sp.ResponseError "Tor test is not supported yet")
-  | CONNECT ->
-      (try
+  try
+    match action with
+      | TEST ->
+        lwt ip = Tor.Manager.test method_name arg_list in
+          return(Sp.ResponseValue ip)            
+      | CONNECT ->
          printf "[socks] executing connect command\n%!";
          lwt ip = Tor.Manager.connect method_name arg_list in
-            return(Sp.ResponseValue ip)            
-       with e -> 
-         return (Sp.ResponseError "provxy_connect"))            
-  | TEARDOWN ->
-      eprintf "[socks] doesn't support teardown action\n%!";
-      return(Sp.ResponseError "Tor teardown is not supported yet")
-
+            return(Sp.ResponseValue ip)           
+      | ENABLE ->
+         lwt ip = Tor.Manager.enable method_name arg_list in
+            return(Sp.ResponseValue ip)           
+      | DISABLE ->
+         lwt ip = Tor.Manager.disable method_name arg_list in
+            return(Sp.ResponseValue ip)           
+     | TEARDOWN ->
+         lwt ip = Tor.Manager.teardown method_name arg_list in
+            return(Sp.ResponseValue ip)           
+    with e -> 
+      return (Sp.ResponseError "provxy_connect") 
+ 
 let handle_notification action method_name arg_list =
   eprintf "Tor tactic doesn't handle notifications\n%!";
   return ()
