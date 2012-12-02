@@ -73,7 +73,7 @@ module Manager = struct
             let pid = open_process_none 
                         (dir ^ "client_tactics/tor/tor.sh", 
                          [|dir ^ "/client_tactics/tor/tor.sh"; 
-                           tmp_dir;|]) in 
+                           dir;|]) in 
             let _ = conn_db.process <- Some (pid) in 
               pid
         | Some pid -> pid
@@ -362,10 +362,11 @@ module Manager = struct
         raise (TorError(Printexc.to_string err))
  
   let test kind args =
+    try_lwt 
     match kind with
       | "server_start" -> begin
           let _ = restart_tor () in 
-          let fd = open_in (tmp_dir ^ "/hostname") in 
+          let fd = open_in (tmp_dir ^ "/tor/hostname") in 
           let name = input_line fd in 
           let _ = close_in fd in 
             return name
@@ -386,6 +387,7 @@ module Manager = struct
           lwt ret = run_client port ip in 
             return (string_of_bool ret)
     | _ -> raise(TorError(sprintf "Unsupported action %s" kind))
+    with exn -> raise(TorError(Printexc.to_string exn))
 
 
   (*********************************************************************
