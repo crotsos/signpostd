@@ -19,6 +19,7 @@ open Pktgen
 open Lwt
 open Lwt_list
 open Lwt_process
+open Lwt_unix
 
 open Config
 
@@ -139,7 +140,7 @@ module Manager = struct
         (* TODO Add a counter for the domain name *)
         (Int32.add conn.dst_isn 8l ) (* 68 bytes for http reply *)
         (Int32.add conn.src_isn 1l)
-        conn.src_mac conn.dst_mac 
+        conn.dst_mac conn.src_mac 
         conn.dst_ip conn.src_ip
         dst_port conn.dst_port in 
     lwt _ = 
@@ -155,9 +156,9 @@ module Manager = struct
   let pkt = 
     gen_tcp_data_pkt 
       (Int32.sub conn.src_isn
-         (Int32.of_int ((Cstruct.len conn.data)/ - 1) ))
+         (Int32.of_int ((Cstruct.len conn.data) - 1)))
       (Int32.add conn.dst_isn 1l)
-      conn.src_mac conn.dst_mac
+      conn.dst_mac conn.src_mac
       gw conn.src_ip
       m.OP.Match.tp_src dst_port conn.data in 
     OC.send_of_data controller dpid
@@ -246,12 +247,13 @@ module Manager = struct
       printf "[socks] non-socks coonection on port %d\n%!" 
         src_port in
     let isn = get_tcp_sn data in
-    let req = Lwt_bytes.create 64 in 
+    let req = Lwt_bytes.create 1024 in 
     let _ = Cstruct.set_uint8 req 0 4 in 
     let _ = Cstruct.set_uint8 req 1 1 in 
     let _ = Cstruct.BE.set_uint16 req 2 dst_port in 
-    let _ = Cstruct.BE.set_uint32 req 4 m.OP.Match.nw_dst in 
-    let _ = Cstruct.set_uint8 req 8 0 in 
+    let _ = Cstruct.BE.set_uint32 req 4 1l in 
+    let _ = Cstruct.set_uint8 req 8 0 in
+    let name = name ^ "\000" in
     let _ = Cstruct.set_buffer name 0 req 9  (String.length name) in 
     let req = Cstruct.sub req 0 (9 + (String.length name)) in 
     let mapping = 
@@ -259,13 +261,14 @@ module Manager = struct
        src_ip=m.OP.Match.nw_src; dst_ip = m.OP.Match.nw_dst;
        dst_port=dst_port; ssl_state=SSL_SERVER_INIT;
        src_isn=isn;dst_isn=0l; data=req;} in
-    let _ = Hashtbl.add conn_db.http_conns src_port mapping in 
+    let _ = Hashtbl.replace conn_db.http_conns src_port mapping in 
     (* establishing connection with socks socket *)
     let pkt = 
       gen_server_syn data
-        (Int32.sub isn (Int32.of_int (Cstruct.len mapping.data) ))
+        (Int32.sub isn (Int32.of_int ((Cstruct.len mapping.data))))
         mapping.src_mac mapping.dst_mac
         mapping.src_ip gw tor_port in 
+    let _ = printf "XXXXXXXXX done with tcp request\n%!" in 
       
       OC.send_of_data controller dpid  
         (OP.marshal_and_sub
@@ -332,7 +335,8 @@ module Manager = struct
                            (Lwt_bytes.create 4096))
                 | (false, true) -> 
                     return (printf "[socks] non-socks established  %d\n%!" src_port)
-                | (_, false) -> 
+                | (_, false) ->
+                    let _ = printf "[tor] new conn rcved...\n%!" in 
                     init_tcp_connection controller dpid m src_port 
                       dst_port data
           end
@@ -343,18 +347,22 @@ module Manager = struct
    *********************************************************************)
    let run_client port ip =
      let buf = String.create 1500 in
-     let sock = Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM
-                  (Unix.getprotobyname "udp").Unix.p_proto in   
+     let sock = Lwt_unix.socket Lwt_unix.PF_INET SOCK_STREAM 0 in   
      let ipaddr = Unix.inet_addr_of_string (Uri_IP.ipv4_to_string ip) in
+     printf "[tor] trying to connect...\n%!";
+     lwt _ = Lwt_unix.connect sock (ADDR_INET(ipaddr, port)) in 
+     printf "[tor] connected...\n%!";
      let portaddr = Unix.ADDR_INET (ipaddr, port) in
      let pkt_bitstring = BITSTRING {
        ip:32:int;port:16; (String.length (Nodes.get_local_name ())):16;
        (Nodes.get_local_name ()):-1:string} in 
-    let pkt = Bitstring.string_of_bitstring pkt_bitstring in 
-     lwt _ = Lwt_unix.sendto sock pkt 0 
-                  (String.length pkt) [] portaddr in 
+     let pkt = Bitstring.string_of_bitstring pkt_bitstring in 
+     lwt _ = Lwt_unix.send sock pkt 0 
+                  (String.length pkt) [] in 
+     printf "[tor] send data...\n%!";
      try_lwt 
-       lwt (len, _) = Lwt_unix.recvfrom sock buf 0 1500 [] in
+       lwt len = Lwt_unix.recv sock buf 0 1500 [] in
+     printf "[tor] received data...\n%!";
          return (len > 0)
      with err -> 
        eprintf "[tor] client test error: %s\n%!" 
@@ -384,7 +392,11 @@ module Manager = struct
               ~dl_type:(Some 0x0800) ~nw_proto:(Some(char_of_int 6)) 
               ~nw_dst:(Some ip) ~nw_dst_len:(0) ~tp_dst:(Some port)
               http_pkt_in_cb in 
-          lwt ret = run_client port ip in 
+          lwt _ = 
+            Sp_controller.register_handler_new
+              ~dl_type:(Some 0x0800) ~nw_proto:(Some(char_of_int 6)) 
+              ~tp_src:(Some 9050) http_pkt_in_cb in 
+           lwt ret = run_client port ip in 
             return (string_of_bool ret)
     | _ -> raise(TorError(sprintf "Unsupported action %s" kind))
     with exn -> raise(TorError(Printexc.to_string exn))

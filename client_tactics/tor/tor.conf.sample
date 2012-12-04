@@ -15,9 +15,10 @@
 
 ## Replace this with "SocksPort 0" if you plan to run Tor only as a
 ## relay, and not make any local application connections yourself.
-User 110
+User debian-tor
 SocksPort 9050 # what port to open for local application connections
 SocksListenAddress 0.0.0.0 # accept connections only from localhost
+DataDirectory $dir$/tor/
 #SocksListenAddress 192.168.0.1:9100 # listen on this IP:port also
 
 ## Entry policies to allow/deny SOCKS requests based on IP address.
@@ -67,7 +68,6 @@ ControlPort 9051
 ##
 ## HiddenServicePort x y:z says to redirect requests on port x to the
 ## address y:z.
-
 HiddenServiceDir $dir$
 HiddenServicePort 10000 127.0.0.1:10000
 
