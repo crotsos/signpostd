@@ -53,7 +53,9 @@ let test a b =
       ( fun (a, domain) -> 
           Nodes.send_blocking a 
             (create_tactic_request "tor" 
-               TEST "connect" [a; domain; (string_of_int SignalHandler.echo_port);])
+               TEST "connect" 
+               [(Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip a)); 
+                domain; (string_of_int SignalHandler.echo_port);])
       ) [(b, a_domain); (a, b_domain)] in 
   match ret with
     | "true"::"true"::[] -> return true
