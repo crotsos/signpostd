@@ -171,7 +171,7 @@ module Manager = struct
                 (Int32.add conn.src_isn 1l)
                 conn.src_mac conn.dst_mac 
                 conn.dst_ip conn.src_ip
-                dst_port conn.dst_port in 
+                dst_port conn.dst_port 0xffff in 
     let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out 
                 (OP.Packet_out.create ~buffer_id:(-1l)
                    ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
@@ -187,7 +187,7 @@ module Manager = struct
                (Int32.add conn.dst_isn 1l)
                conn.src_mac conn.dst_mac
                gw conn.src_ip
-               m.OP.Match.tp_src dst_port sock_req) in 
+               m.OP.Match.tp_src dst_port 0xffff sock_req) in 
   let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out 
               (OP.Packet_out.create ~buffer_id:(-1l)
                  ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 

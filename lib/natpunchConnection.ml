@@ -210,7 +210,7 @@ let handle_notification _ method_name arg_list =
                       (Int32.of_string ack)
                       mac_b "\xf0\xad\x4e\x00\xcb\xab" ip_a ip_b
                       (int_of_string tp_dst) (int_of_string tp_src)
-          in
+                      0xffff in
           let bs_a = 
             OP.marshal_and_sub
               (OP.Packet_out.marshal_packet_out 
@@ -222,7 +222,7 @@ let handle_notification _ method_name arg_list =
           let pkt = gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
                       mac_a "\xf0\xad\x4e\x00\xcb\xab" ip_b ip_a
                       (int_of_string tp_src) (int_of_string tp_dst)
-          in
+                      0xffff in
           let bs_b = OP.marshal_and_sub 
                        (OP.Packet_out.marshal_packet_out
                       (OP.Packet_out.create ~buffer_id:(-1l)

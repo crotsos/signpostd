@@ -312,10 +312,10 @@ let gen_server_ack isn ack local_mac gw_mac gw_ip local_ip
 * Generate a syn+ack packet 
 * *)
 let gen_server_synack isn ack local_mac gw_mac src_ip local_ip 
-      dst_port src_port =
+      dst_port src_port window =
   gen_tcp_packet isn ack local_mac gw_mac src_ip local_ip 
     src_port dst_port {urg=false; ack=true; psh=false; 
-                       rst=false; syn=true; fin=false; } 0xffff 
+                       rst=false; syn=true; fin=false; } window
     (Lwt_bytes.create 0) 
 
 (*  let window = 0xffff in 
@@ -338,10 +338,10 @@ let gen_server_synack isn ack local_mac gw_mac src_ip local_ip
 * Generate a tcp packet with data 
 * *)
 let gen_tcp_data_pkt isn ack local_mac gw_mac gw_ip local_ip 
-      dst_port src_port data =
+      dst_port src_port window data =
   gen_tcp_packet isn ack local_mac gw_mac gw_ip local_ip 
     src_port dst_port {urg=false; ack=true; psh=false; 
-                       rst=false; syn=false; fin=false; } 0xffff 
+                       rst=false; syn=false; fin=false; } window
     data 
 
 (*  let eth_hdr = BITSTRING{local_mac:48:string; gw_mac:48:string; 0x0800:16} in 

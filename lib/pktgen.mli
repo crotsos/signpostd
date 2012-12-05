@@ -32,10 +32,10 @@ val gen_tcp_syn : int32 -> string ->
 val gen_server_ack : int32 -> int32 -> string -> 
   string -> int32 -> int32 -> int -> int ->  int -> Cstruct.buf
 val gen_server_synack : int32 -> int32 -> string -> 
-  string -> int32 -> int32 -> int -> int -> Cstruct.buf
+  string -> int32 -> int32 -> int -> int -> int -> Cstruct.buf
 
 val gen_tcp_data_pkt : int32 -> int32 -> string -> 
-  string -> int32 -> int32 -> int -> int -> Cstruct.buf -> 
-  Cstruct.buf
+  string -> int32 -> int32 -> int -> int -> int -> Cstruct.buf -> 
+   Cstruct.buf
 val gen_udp_pkt : string -> string -> int32 -> int32 -> 
   int -> int -> Cstruct.buf -> Cstruct.buf
