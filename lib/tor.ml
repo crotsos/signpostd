@@ -132,17 +132,17 @@ module Manager = struct
 
 
   let ssl_send_conect_req controller dpid conn m dst_port = 
-    let (_, gw, _) = Net_cache.Routing.get_next_hop conn.dst_ip in
-  (* SYNACK the client in order to establish the
+(*    let (_, gw, _) = Net_cache.Routing.get_next_hop conn.dst_ip in *)
+ (* SYNACK the client in order to establish the
      * connection *)
-    let pkt = 
+     let pkt = 
       gen_server_synack
         (* TODO Add a counter for the domain name *)
         (Int32.add conn.dst_isn 8l ) (* 68 bytes for http reply *)
         (Int32.add conn.src_isn 1l)
         conn.dst_mac conn.src_mac 
         conn.dst_ip conn.src_ip
-        dst_port conn.dst_port in 
+        dst_port conn.dst_port 0x0 in 
     lwt _ = 
       OC.send_of_data controller dpid
         (OP.marshal_and_sub 
@@ -159,8 +159,8 @@ module Manager = struct
          (Int32.of_int ((Cstruct.len conn.data) - 1)))
       (Int32.add conn.dst_isn 1l)
       conn.dst_mac conn.src_mac
-      gw conn.src_ip
-      m.OP.Match.tp_src dst_port conn.data in 
+      conn.dst_ip conn.src_ip
+      m.OP.Match.tp_src dst_port 0xffff conn.data in 
     OC.send_of_data controller dpid
       (OP.marshal_and_sub 
          (OP.Packet_out.marshal_packet_out 
@@ -170,16 +170,50 @@ module Manager = struct
          (Lwt_bytes.create 4096))
 
   let ssl_complete_flow controller dpid conn m dst_port = 
-    let (_, gw, _) = Net_cache.Routing.get_next_hop conn.dst_ip in
-    
+(*    let (_, gw, _) = Net_cache.Routing.get_next_hop conn.dst_ip in *)
+ (* Setup the appropriate flows in the openflow flow table *)
+    let actions = [
+      OP.Flow.Set_dl_src(conn.dst_mac);
+      OP.Flow.Set_dl_dst(conn.src_mac);
+      OP.Flow.Set_nw_src(conn.dst_ip);
+      OP.Flow.Set_nw_dst(conn.src_ip);
+      OP.Flow.Set_tp_src(conn.dst_port);
+      OP.Flow.Output((OP.Port.In_port), 2000);] in
+    let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
+                ~buffer_id:(-1) actions () in 
+    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
+      (Lwt_bytes.create 4096) in
+    lwt _ = OC.send_of_data controller dpid bs in 
+
+    let m = OP.Match.({wildcards=(OP.Wildcards.exact_match);
+                     in_port=OP.Port.Local; dl_src=conn.src_mac;
+                     dl_dst=conn.dst_mac; dl_vlan=0xffff;
+                     dl_vlan_pcp=(char_of_int 0); dl_type=0x0800;
+                     nw_src=conn.src_ip; nw_dst=conn.dst_ip;
+                     nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
+                     tp_src=dst_port; tp_dst=conn.dst_port}) in 
+    let actions = [
+      OP.Flow.Set_dl_src(conn.dst_mac);
+      OP.Flow.Set_dl_dst(conn.src_mac);
+      OP.Flow.Set_nw_src(conn.dst_ip);
+      OP.Flow.Set_nw_dst(conn.src_ip);
+      OP.Flow.Set_tp_dst(tor_port);
+      OP.Flow.Output((OP.Port.In_port), 2000);] in
+    let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
+              ~buffer_id:(-1) actions () in 
+    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
+              (Lwt_bytes.create 4096) in
+    lwt _ = OC.send_of_data controller dpid bs in 
+
+     
     (* ack the socks connect http reply *)
     let pkt = 
       gen_server_ack 
         (Int32.add conn.src_isn 1l)
         (Int32.add conn.dst_isn 9l) 
-        conn.src_mac conn.dst_mac
-        gw conn.src_ip
-        m.OP.Match.tp_src dst_port 0xffff in 
+        conn.dst_mac conn.src_mac
+        conn.dst_ip conn.src_ip
+        9050 m.OP.Match.tp_src (* dst_port *) 0xffff in 
     lwt _ = 
       OC.send_of_data controller dpid
         (OP.marshal_and_sub
@@ -189,12 +223,13 @@ module Manager = struct
                  ~data:pkt ~in_port:(OP.Port.No_port) () )) 
         (Lwt_bytes.create 4096)) in  
 
-    let pkt = gen_server_ack 
-                (Int32.add conn.dst_isn 8l ) (* 68 bytes for http reply *)
-                (Int32.add conn.src_isn 1l)
-                conn.src_mac conn.dst_mac 
-                conn.dst_ip conn.src_ip
-                dst_port conn.dst_port 0xffff in 
+    let pkt = 
+      gen_server_ack 
+        (Int32.add conn.dst_isn 9l ) (* 68 bytes for http reply *)
+        (Int32.add conn.src_isn 1l)
+        conn.dst_mac conn.src_mac 
+        conn.dst_ip conn.src_ip
+        dst_port conn.dst_port 0xffff in 
     let bs = 
       OC.send_of_data controller dpid
         (OP.marshal_and_sub
@@ -204,44 +239,28 @@ module Manager = struct
                  ~data:pkt ~in_port:(OP.Port.No_port) () )) 
            (Lwt_bytes.create 4096)) in  
     
-  (* Setup the appropriate flows in the openflow flow table *)
-  let actions = [
-    OP.Flow.Set_dl_src(conn.dst_mac);
-    OP.Flow.Set_dl_dst(conn.src_mac);
-    OP.Flow.Set_nw_src(conn.dst_ip);
-    OP.Flow.Set_nw_dst(conn.src_ip);
-    OP.Flow.Set_tp_src(conn.dst_port);
-    OP.Flow.Output((OP.Port.Local), 2000);] in
-  let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
-              ~buffer_id:(-1) actions () in 
-  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Lwt_bytes.create 4096) in
-  lwt _ = OC.send_of_data controller dpid bs in 
-
-  let m = OP.Match.({wildcards=(OP.Wildcards.exact_match);
-                     in_port=OP.Port.Local; dl_src=conn.src_mac;
-                     dl_dst=conn.dst_mac; dl_vlan=0xffff;
-                     dl_vlan_pcp=(char_of_int 0); dl_type=0x0800;
-                     nw_src=conn.src_ip; nw_dst=conn.dst_ip;
-                     nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
-                     tp_src=dst_port; tp_dst=conn.dst_port}) in 
-  let actions = [
-    OP.Flow.Set_dl_src(conn.dst_mac);
-    OP.Flow.Set_dl_dst(conn.src_mac);
-    OP.Flow.Set_nw_src(gw);
-    OP.Flow.Set_nw_dst(conn.src_ip);
-    OP.Flow.Set_tp_dst(tor_port);
-    OP.Flow.Output((OP.Port.Local), 2000);] in
-  let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
-              ~buffer_id:(-1) actions () in 
-  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
-             (Lwt_bytes.create 4096) in
-    OC.send_of_data controller dpid bs 
+    let pkt = 
+      gen_server_ack
+        (* TODO Add a counter for the domain name *)
+        (Int32.add conn.dst_isn 8l ) (* 68 bytes for http reply *)
+        (Int32.add conn.src_isn 1l)
+        conn.dst_mac conn.src_mac 
+        conn.dst_ip conn.src_ip
+        dst_port conn.dst_port 0xffff in 
+    lwt _ = 
+      OC.send_of_data controller dpid
+        (OP.marshal_and_sub 
+           (OP.Packet_out.marshal_packet_out
+              (OP.Packet_out.create ~buffer_id:(-1l)
+                 ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
+                 ~data:pkt ~in_port:(OP.Port.No_port) () )) 
+           (Lwt_bytes.create 4096)) in 
+      return ()
 
   let init_tcp_connection controller dpid m src_port dst_port data =
-    let (_, gw, _) = 
+(*    let (_, gw, _) = 
       Net_cache.Routing.get_next_hop
-        m.OP.Match.nw_dst in 
+        m.OP.Match.nw_dst in *)
     let name = Hashtbl.find conn_db.hosts m.OP.Match.nw_dst in 
     let _ = 
       printf "[socks] non-socks coonection on port %d\n%!" 
@@ -267,7 +286,7 @@ module Manager = struct
       gen_server_syn data
         (Int32.sub isn (Int32.of_int ((Cstruct.len mapping.data))))
         mapping.src_mac mapping.dst_mac
-        mapping.src_ip gw tor_port in 
+        mapping.src_ip mapping.dst_ip tor_port in 
     let _ = printf "XXXXXXXXX done with tcp request\n%!" in 
       
       OC.send_of_data controller dpid  
