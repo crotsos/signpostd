@@ -58,11 +58,16 @@ module Manager = struct
   type conn_db_type = {
     http_conns : (int, conn_type) Hashtbl.t;
     mutable process : process_none option;
+    mutable monitor_wait : unit t option;
+    mutable monitor_return : unit u option;
+    mutable tor_ctrl_fd : Lwt_unix.file_descr option;
+    mutable server_list : int list;
     hosts : (int32, string) Hashtbl.t; 
   }
 
   let conn_db = 
-    {http_conns=(Hashtbl.create 0);process=None;hosts=(Hashtbl.create 32); }
+    {http_conns=(Hashtbl.create 0);process=None;hosts=(Hashtbl.create 32); 
+     monitor_wait=None; monitor_return=None; tor_ctrl_fd=None;server_list=[]}
 
 
   let tor_port = 9050
@@ -230,7 +235,7 @@ module Manager = struct
         conn.dst_mac conn.src_mac 
         conn.dst_ip conn.src_ip
         dst_port conn.dst_port 0xffff in 
-    let bs = 
+    let _ = 
       OC.send_of_data controller dpid
         (OP.marshal_and_sub
            (OP.Packet_out.marshal_packet_out
@@ -371,7 +376,6 @@ module Manager = struct
      printf "[tor] trying to connect...\n%!";
      lwt _ = Lwt_unix.connect sock (ADDR_INET(ipaddr, port)) in 
      printf "[tor] connected...\n%!";
-     let portaddr = Unix.ADDR_INET (ipaddr, port) in
      let pkt_bitstring = BITSTRING {
        ip:32:int;port:16; (String.length (Nodes.get_local_name ())):16;
        (Nodes.get_local_name ()):-1:string} in 
@@ -425,66 +429,124 @@ module Manager = struct
    * Connection code
    **********************************************************************)
    
+  let read_servers () =
+    let fd = open_in "/proc/net/tcp" in 
+    let _ = input_line fd in
+    let multi_sp = Re_str.regexp "[\ ]+" in 
+    let sp = Re_str.regexp "\ " in 
+    let colon = Re_str.regexp ":" in 
+    let rec parse_tcp_data fd = 
+      try 
+        let line = input_line fd in 
+        let line = Re_str.global_replace multi_sp " " line in 
+        let fields = Re_str.split sp line in 
+        let ip_port = List.nth fields 1 in 
+        let ip::port::_ = Re_str.split colon ip_port in 
+        if (Int32.of_string ip = 0l ) then 
+          [(int_of_string ("0x"^port))] @ (parse_tcp_data fd)
+        else 
+          parse_tcp_data fd
+      with End_of_file ->
+        let _ = close_in fd in 
+          []
+    in
+      parse_tcp_data fd 
+
+  let monitor_socket t = 
+    nchoose 
+    [ t; 
+    (while_lwt true do 
+      let servers = read_servers () in 
+      let new_servers = 
+        List.filter 
+        (fun port ->
+          not (List.mem port conn_db.server_list) ) servers in
+      let _ = 
+        List.iter (
+          fun port -> 
+            conn_db.server_list <- conn_db.server_list @ [port]
+        ) new_servers in 
+        return ()
+    done)]
+
   let connect kind _ =
     match kind with 
-      | "start" -> begin
-(*          (lwt _ = match conn_db.process with
-            | None -> restart_tor () 
-            | Some(pid) -> return (pid)
-          in*)
-          let _ = restart_tor () in 
-          return ("OK")
-        end
-      | "forward" ->
-          Printf.printf "[socks] forwarding started\n%!";
-          let flow_wild = OP.Wildcards.({
-                in_port=true; dl_vlan=true;
-                dl_src=true; dl_dst=true;
-                dl_type=false; nw_proto=false;
-                tp_dst=false; tp_src=true;
-                nw_src=(char_of_int 32); nw_dst=(char_of_int 32);
-                dl_vlan_pcp=true; nw_tos=true;}) in 
-          let flow = OP.Match.create_flow_match flow_wild ~dl_type:(0x0800)
-                       ~nw_proto:(char_of_int 6) ~tp_dst:80 () in 
-          Sp_controller.register_handler flow http_pkt_in_cb;
-          let flow_wild = OP.Wildcards.({
-                in_port=true; dl_vlan=true;
-                dl_src=true; dl_dst=true;
-                dl_type=false; nw_proto=false;
-                tp_dst=false; tp_src=true;
-                nw_src=(char_of_int 32); nw_dst=(char_of_int 32);
-                dl_vlan_pcp=true; nw_tos=true;}) in 
-          let flow = OP.Match.create_flow_match flow_wild ~dl_type:(0x0800)
-                       ~nw_proto:(char_of_int 6) ~tp_dst:443 () in 
-          Sp_controller.register_handler flow http_pkt_in_cb;          
-          let flow_wild = OP.Wildcards.({
-                in_port=true; dl_vlan=true;
-                dl_src=true; dl_dst=true;
-                dl_type=false; nw_proto=false;
-                tp_dst=true; tp_src=false;
-                nw_src=(char_of_int 32); nw_dst=(char_of_int 32);
-                dl_vlan_pcp=true; nw_tos=true;}) in 
-          let flow = OP.Match.create_flow_match flow_wild ~dl_type:(0x0800)
-                       ~nw_proto:(char_of_int 6) ~tp_src:tor_port () in 
-          Sp_controller.register_handler flow http_pkt_in_cb;
-          return ("OK")
-      | _ -> 
+      | "listen" -> begin
+        match conn_db.monitor_return with
+        | Some _ -> return "true"
+        | None ->
+            let (t, u) = task () in
+            let _ = conn_db.monitor_wait <- Some(t) in 
+            let _ = conn_db.monitor_return <- Some(u) in 
+            let _ = ignore_result (monitor_socket t) in  
+            return ("true")
+      end
+     | _ -> 
           Printf.eprintf "[socks] Invalid connection kind %s \n%!" kind;
           raise (SocksError "Invalid connection kind")
  
 (**
   * enable event
   * *)
-  let enable _ _ = 
-    return "true"
-
+  let enable kind args = 
+    try_lwt
+    match kind with
+    | "forward" -> 
+      let domain, ip = 
+        match args with
+        | _::domain::ip::_ ->
+            domain, (Uri_IP.string_to_ipv4 ip)
+        | _ -> 
+          raise (SocksError "Insufficient parameters")
+      in
+      let _ = Hashtbl.replace conn_db.hosts ip domain in 
+      lwt _ = 
+        Sp_controller.register_handler_new
+          ~dl_type:(Some 0x0800) ~nw_proto:(Some(char_of_int 6)) 
+          ~nw_dst:(Some ip) ~nw_dst_len:(0) http_pkt_in_cb in 
+      lwt _ = 
+        Sp_controller.register_handler_new
+          ~dl_type:(Some 0x0800) ~nw_proto:(Some(char_of_int 6)) 
+          ~tp_src:(Some 9050) http_pkt_in_cb in 
+        return "true"
+        | _ -> raise (SocksError "invalid enable action")
+    with exn -> 
+      let _ = eprintf "[tor] enable error: %s\n%!" 
+      (Printexc.to_string exn) in 
+      raise (SocksError (sprintf "enable error: %s" 
+      (Printexc.to_string exn)))
+  
 (*
  * disable tactic
  * *)
 
-  let disable _ _ = 
-    return "true"
-
+  let disable kind args = (* return "true" *)
+    try_lwt 
+      match kind with 
+        | "disable" ->
+            let domain, ip = 
+              match args with
+                | _::domain::ip::_ ->
+                    domain, (Uri_IP.string_to_ipv4 ip)
+                | _ -> 
+                    raise (SocksError "Insufficient parameters")
+            in
+            lwt _ = 
+              Sp_controller.unregister_handler_new
+                ~dl_type:(Some 0x0800) ~nw_proto:(Some(char_of_int 6)) 
+                ~nw_dst:(Some ip) ~nw_dst_len:(0) () in 
+            lwt _ = 
+              Sp_controller.unregister_handler_new
+                ~dl_type:(Some 0x0800) ~nw_proto:(Some(char_of_int 6)) 
+                ~tp_src:(Some 9050) () in 
+            (* need to delete also the existing exact match rules *)
+              return ("true")
+      with exn -> 
+      let _ = eprintf "[tor] enable error: %s\n%!" 
+                (Printexc.to_string exn) in 
+      raise (SocksError (sprintf "enable error: %s" (Printexc.to_string exn)))
+ 
+ 
   (************************************************************************
    *         Tearing down connection code
    ************************************************************************)
