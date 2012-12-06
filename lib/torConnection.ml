@@ -38,48 +38,88 @@ let state = {conns=(Hashtbl.create 16);}
  ******************************************************)
 
 let test a b = 
+  try_lwt 
   lwt [a_domain; b_domain] = 
     Lwt_list.map_p 
       ( fun a ->
           if (Hashtbl.mem state.conns a ) then 
             return (Hashtbl.find state.conns a)
           else
-            Nodes.send_blocking a 
+            lwt d = Nodes.send_blocking a ~timeout:120 
               (create_tactic_request "tor" 
-                 TEST "server_start" [])
+                 TEST "server_start" []) in 
+            let _ = Hashtbl.replace state.conns a d in 
+              return d
       ) [a; b] in 
   lwt ret = 
     Lwt_list.map_p 
-      ( fun (a, domain) -> 
-          Nodes.send_blocking a 
+      ( fun (b, a, domain) -> 
+          Nodes.send_blocking b ~timeout:120
             (create_tactic_request "tor" 
-               TEST "connect" 
+               TEST "connect"  
                [(Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip a)); 
                 domain; (string_of_int SignalHandler.echo_port);])
-      ) [(b, a_domain); (a, b_domain)] in 
+      ) [(a, b, b_domain); (b, a, a_domain) ] in 
   match ret with
     | "true"::"true"::[] -> return true
-    | _ -> return false
+    | _ -> return false 
+  with exn -> 
+    let _ = eprintf "[tor] test error:%s\n%!" (Printexc.to_string exn) in
+      return false
 
-let connect a b = return true
-(*  (* Trying to see if connectivity is possible *)
-  eprintf "[proxy] enabling between tor on %s \n%!" a;
-  let rpc = (create_tactic_request "tor" 
-               CONNECT "start" []) in
-    try
-      lwt res = (Nodes.send_blocking a rpc) in 
-      let rpc = (create_tactic_request "tor" 
-                   CONNECT "forward" []) in
-      lwt res = (Nodes.send_blocking a rpc) in 
-        return true
-    with exn -> 
-      Printf.printf "[socks] client fail %s\n%!" a;
-(*       raise Tor_error *)
-      return false*)
-let enable _ _ = return true
-let disable _ _ = return true 
+let connect a b = 
+  try_lwt 
+    lwt res = 
+      Lwt_list.map_p 
+        (fun a -> 
+           Nodes.send_blocking a
+             (create_tactic_request "tor"
+                CONNECT "listen" [])) [a;b] in 
+      return (List.fold_right (fun a r -> r && (bool_of_string a)) res true)
+  with exn -> 
+    let _ = eprintf "[tor] connect error:%s\n%!" (Printexc.to_string exn) in
+      return false
+
+let enable a b =
+  try_lwt 
+    lwt res = 
+      Lwt_list.map_p 
+        (fun (a, b) -> 
+           Nodes.send_blocking a
+             (create_tactic_request "tor"
+                ENABLE "forward" [b;
+        (Hashtbl.find state.conns b); 
+        (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b));])) 
+        [(a, b);(b, a)] in 
+      return (List.fold_right (fun a r -> r && (bool_of_string a)) res true)
+  with exn -> 
+    let _ = eprintf "[tor] connect error:%s\n%!" (Printexc.to_string exn) in
+      return false
+
+let disable a b = 
+   try_lwt 
+    lwt res = 
+      Lwt_list.map_p 
+        (fun (a, b) -> 
+           Nodes.send_blocking a
+             (create_tactic_request "tor"
+                DISABLE "disable" [b;
+        (Hashtbl.find state.conns b); 
+        (Uri_IP.ipv4_to_string (Nodes.get_node_sp_ip b));])) 
+        [(a, b);(b, a)] in 
+      return (List.fold_right (fun a r -> r && (bool_of_string a)) res true)
+  with exn -> 
+    let _ = eprintf "[tor] connect error:%s\n%!" (Printexc.to_string exn) in
+      return false
 
 let teardown a b = 
+(*    lwt res = 
+      Lwt_list.map_p 
+        (fun a -> 
+           Nodes.send_blocking a
+             (create_tactic_request "tor"
+                TEARDOWN "teardown" [])) [a;b] in 
+      return (List.fold_right (fun a r -> r && (bool_of_string a)) res true)*)
   return true
 
 (* ******************************************
