@@ -46,6 +46,14 @@ val register_handler_new : ?in_port:int option -> ?dl_vlan:int option ->
   ?dl_vlan_pcp:char option -> ?nw_tos:char option ->
   (Openflow.Ofcontroller.t -> Openflow.Ofpacket.datapath_id -> 
      Openflow.Ofcontroller.Event.e -> unit Lwt.t ) -> unit Lwt.t
+val unregister_handler_new : ?in_port:int option -> ?dl_vlan:int option -> 
+  ?dl_src:string option -> ?dl_dst:string option ->
+  ?dl_type:int option -> ?nw_proto:char option ->
+  ?tp_dst:int option -> ?tp_src:int option ->
+  ?nw_dst:int32 option -> ?nw_dst_len:int ->
+  ?nw_src:int32 option -> ?nw_src_len:int ->
+  ?dl_vlan_pcp:char option -> ?nw_tos:char option -> unit -> unit Lwt.t
+
 
 val add_dev : string -> string -> string -> unit Lwt.t
 val del_dev : string -> string -> string -> unit Lwt.t
