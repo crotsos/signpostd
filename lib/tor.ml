@@ -395,7 +395,8 @@ module Manager = struct
           let _ = restart_tor () in 
           let fd = open_in (tmp_dir ^ "/tor/hostname") in 
           let name = input_line fd in 
-          let _ = close_in fd in 
+          let _ = close_in fd in
+          lwt _ = Lwt_unix.sleep 1.0 in 
             return name
         end
       | "connect" ->
