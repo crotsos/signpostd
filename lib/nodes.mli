@@ -22,7 +22,7 @@ val sp_ip_netmask : int
 (* API for sending rpc's to a node *)
 val send : Sp.name -> t -> unit Lwt.t
 val send_to_server : t -> unit Lwt.t
-val send_blocking : Sp.name -> t -> string Lwt.t
+val send_blocking : Sp.name -> ?timeout:int -> t -> string Lwt.t
 
 (* Let the SignalHandler wake up a pending sender *)
 val wake_up_thread_with_reply : id -> t -> unit Lwt.t

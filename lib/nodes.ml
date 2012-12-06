@@ -159,8 +159,8 @@ let send_fd = Lwt_unix.(socket PF_INET SOCK_DGRAM 0)
 let register_sender id wakeup_cbk = 
   Hashtbl.replace pending_responses id wakeup_cbk
 
-let register_thread_timer id sleeper = 
-  Lwt_unix.sleep (float_of_int Config.rpc_timeout) >>= fun _ ->
+let register_thread_timer id sleeper timeout = 
+  Lwt_unix.sleep (float_of_int timeout) >>= fun _ ->
   match (Lwt.state sleeper) with
   | Sleep -> begin
       Hashtbl.remove pending_responses id;
@@ -192,7 +192,7 @@ let send_to_server rpc =
 (*   let server = addr_from ip port in *)
   send_to_addr fd rpc
 
-let send_blocking name rpc =
+let send_blocking name ?(timeout=Config.rpc_timeout) rpc =
   let open Rpc in
   let sleeper, wakener = Lwt.task () in
   let id = match rpc with
@@ -200,7 +200,7 @@ let send_blocking name rpc =
   | _ -> raise (Sp.Client_error "Invalid rpc send ")
   in
   register_sender id wakener;
-  register_thread_timer id sleeper;
+  register_thread_timer id sleeper timeout;
   send name rpc;
   sleeper >>= fun result ->
   match (Lwt.state sleeper) with
