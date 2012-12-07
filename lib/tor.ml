@@ -442,12 +442,17 @@ module Manager = struct
         let line = Re_str.global_replace multi_sp " " line in 
         let fields = Re_str.split sp line in 
         let ip_port = List.nth fields 1 in 
-        let ip::port::_ = Re_str.split colon ip_port in 
-        if (Int32.of_string ip = 0l ) then 
-          [(int_of_string ("0x"^port))] @ (parse_tcp_data fd)
+        let ip::port::_ = Re_str.split colon ip_port in
+        if (Int32.of_string ("0x"^ip) = 0l ) then 
+            [(int_of_string ("0x"^port))] @ (parse_tcp_data fd)
         else 
           parse_tcp_data fd
       with End_of_file ->
+        let _ = close_in fd in 
+          []
+        | exn ->
+        let _ = eprintf "[tor] monitor err: %s\n%!" 
+                  (Printexc.to_string exn ) in 
         let _ = close_in fd in 
           []
     in
@@ -466,7 +471,8 @@ module Manager = struct
         List.iter (
           fun port -> 
             conn_db.server_list <- conn_db.server_list @ [port]
-        ) new_servers in 
+        ) new_servers in
+      lwt _ = Lwt_unix.sleep 10.0 in 
         return ()
     done)]
 
@@ -492,7 +498,8 @@ module Manager = struct
   let enable kind args = 
     try_lwt
     match kind with
-    | "forward" -> 
+    | "forward" ->
+        let _ = restart_tor () in 
       let domain, ip = 
         match args with
         | _::domain::ip::_ ->
