@@ -28,6 +28,12 @@ type tor_ctl_state = {
 
 exception Tor_request_error of int * string
 
+let print_data (status, lines) =
+  let _ = eprintf "%d status\n%!" status in 
+    List.iter (fun line -> 
+      Printf.eprintf "%d+%s\n%!" status line 
+    ) lines
+
 let send_command st cmd = 
   let cmd = cmd ^ "\n" in 
   lwt _ = Lwt_unix.send st.fd cmd 0 (String.length cmd) [] in
@@ -43,13 +49,9 @@ let send_command st cmd =
       else
         return (status, [data])
   in
-    read_reply st
-
-  let print_data (status, lines) =
-    let _ = eprintf "%d status\n%!" status in 
-    List.iter (fun line -> 
-      Printf.eprintf "%d+%s\n%!" status line 
-    ) lines
+  lwt ret = read_reply st in 
+  let _ = print_data ret in 
+    return ret
 
 let init_tor_ctl ip port =
   try_lwt
