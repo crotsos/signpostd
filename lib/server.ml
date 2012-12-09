@@ -17,9 +17,7 @@
 open Dns
 open Dns.Packet
 open Dns.Query
-
 open Lwt 
-
 open Printf
 open Int64
 open Sp_controller
@@ -100,7 +98,11 @@ let dnsfn st key sign_tag ~src ~dst packet =
                            | SIG _ -> true
                            | _ -> false
                      ) packet.additionals in
-                 let SIG(_, _, _, _, src, _) = rr.rdata in 
+                 let src = 
+                   match rr.rdata with 
+                   | SIG(_, _, _, _, src, _) -> src
+                   | _ -> failwith "sig0 not found"
+                 in 
                    match (compareVs (List.rev src) (List.rev dns_domain)) with
                      | Some([src]) -> 
                        let _ = eprintf "src:%s dst:%s dom:%s\n%!" src dst 
@@ -203,6 +205,7 @@ let load_dnskey_rr st sign_tag key =
             (rdata_to_zone_file_record rr)
             (rdata_to_zone_file_record sign)
             (rrset_to_string tl)
+    | _::tl -> rrset_to_string tl
   in
     return (rrset_to_string rrset)
 
@@ -216,9 +219,9 @@ let dns_t () =
 
   lwt fd, src = Dns_server.bind_fd ~address:"0.0.0.0" ~port:5354 in
   let key  = load_key (Config.conf_dir ^ "/signpost.pem") in
-  lwt Some(sign_dnskey) = Key.dnskey_rdata_of_pem_priv_file
-                       (Config.conf_dir ^ "/signpost.pem")
-                       257 Dns.Packet.RSASHA1 in 
+  lwt Some(sign_dnskey) = 
+    Key.dnskey_rdata_of_pem_priv_file
+      (Config.conf_dir ^ "/signpost.pem") 57 Dns.Packet.RSASHA1 in 
   let sign_tag = Sec.get_dnskey_tag sign_dnskey in 
   let zsk = Dns.Packet.({
     name=(our_domain_l);
@@ -228,8 +231,6 @@ let dns_t () =
     Sec.sign_records  
       Dns.Packet.RSASHA1 key sign_tag our_domain_l
       [zsk] in 
-  lwt zone_keys = dnskey_of_pem_priv_file 
-    (Config.conf_dir ^ "/signpost.pem")  in 
   lwt dns_keys = load_dnskey_rr st sign_tag key in
   let zonebuf = sprintf "
 $ORIGIN %s. ;
@@ -266,7 +267,7 @@ lwt _ =
   let _ = printf "routing table loaded...\n%!" in 
   let _ = Net_cache.Arp_cache.load_arp () in
     Net.Manager.create (
-    fun mgr dev id -> 
+    fun mgr _ _ -> 
     join [
       dns_t ();
       signal_t ();

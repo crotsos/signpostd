@@ -27,18 +27,18 @@ let name () = "privoxy"
 (******************************************************
  * connection method
  ******************************************************)
-let connect a b =
+let connect a _ =
   (* Trying to see if connectivity is possible *)
   eprintf "[proxy] enabling between privoxy on %s \n%!" a;
   let rpc = (create_tactic_request "privoxy" 
                CONNECT "start" []) in
-    try
-      lwt res = (Nodes.send_blocking a rpc) in 
-      let rpc = (create_tactic_request "privoxy" 
-                   CONNECT "forward" []) in
-      lwt res = (Nodes.send_blocking a rpc) in 
+    try_lwt
+      lwt _ = Nodes.send_blocking a rpc in 
+      let rpc = create_tactic_request "privoxy" 
+                   CONNECT "forward" [] in
+      lwt _ = Nodes.send_blocking a rpc in 
         return true
-    with exn -> 
+    with _ -> 
       Printf.printf "[proxy] client fail %s\n%!" a;
 (*       raise Privoxy_error *)
         return false
@@ -50,22 +50,23 @@ let connect a b =
 
 let handle_request action method_name arg_list =
   let open Rpc in
-  match action with
-  | TEST ->
-      eprintf "[privoxy] doesn't support test action\n%!";
-      return(Sp.ResponseError "Privoxy test is not supported yet")
-  | CONNECT ->
-      (try
-         printf "[privoxy] executing connect command\n%!";
-         lwt ip = Privoxy.Manager.connect method_name arg_list in
-            return(Sp.ResponseValue ip)            
-       with e -> 
-         return (Sp.ResponseError "provxy_connect"))            
-  | TEARDOWN ->
-      eprintf "[privoxy] doesn't support teardown action\n%!";
-      return(Sp.ResponseError "Privoxy teardown is not supported yet")
-
-let handle_notification action method_name arg_list =
+  try_lwt
+    match action with
+    | TEST ->
+      let _ = eprintf "[privoxy] doesn't support test action\n%!" in 
+        return(Sp.ResponseError "Privoxy test is not supported yet")
+    | CONNECT ->
+      let _ = printf "[privoxy] executing connect command\n%!" in 
+      lwt ip = Privoxy.Manager.connect method_name arg_list in
+        return(Sp.ResponseValue ip)            
+   | TEARDOWN ->
+      let _ = eprintf "[privoxy] doesn't support teardown action\n%!" in
+        return(Sp.ResponseError "Privoxy teardown is not supported yet")
+   | _ -> return (Sp.ResponseError "unsupported action")
+  with ex -> 
+    return (Sp.ResponseError (sprintf "privoxy err:%s" (Printexc.to_string ex))) 
+ 
+let handle_notification _ _ _ =
   eprintf "Privoxy tactic doesn't handle notifications\n%!";
   return ()
 

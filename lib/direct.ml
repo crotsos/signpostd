@@ -14,6 +14,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
+
 open Lwt
 open Lwt_unix
 open Lwt_list
@@ -135,9 +136,13 @@ module Manager = struct
             | _ -> return ("OK"))
         (* code to send udp packets to the destination*)
         | "client" -> (
-            let port :: ips = args in 
-              lwt ip = run_client (int_of_string port) ips in
-                (printf "[direct] Received a reply from ip %s \n%!" ip);
+            let port, ips = 
+              match args with
+              |port :: ips -> (int_of_string port), ips
+              | _ -> failwith "inssuficient args"
+                in 
+              lwt ip = run_client  port ips in
+              let _ = printf "[direct] reply from ip %s \n%!" ip in
                 return (ip))
         | _ -> (
             printf "[direct] Action %s not supported in test" kind;
@@ -174,7 +179,7 @@ module Manager = struct
          (Config.dir^"/client_tactics/get_local_device br0")) in
     let ips = Re_str.split (Re_str.regexp " ") 
                 (input_line ip_stream) in 
-    let _::mac::_ = ips in
+    let mac = List.nth ips 1 in
     let mac = Net_cache.mac_of_string mac in 
     
     (* Setup incoming flow *)
@@ -195,12 +200,17 @@ module Manager = struct
     match kind with
       | "enable" ->(
         try_lwt
-          let mac_addr::local_ip::remote_ip::
-              local_sp_ip::remote_sp_ip::_ = args in
-          let [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] = 
-            List.map Uri_IP.string_to_ipv4 
-              [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] in 
-          lwt _ = setup_flows Config.net_intf mac_addr 
+          let mac_addr,local_ip,remote_ip,local_sp_ip,remote_sp_ip =
+            match args with
+            | mac_addr::local_ip::remote_ip::
+              local_sp_ip::remote_sp_ip::_ -> 
+                mac_addr,(Uri_IP.string_to_ipv4 local_ip),
+                (Uri_IP.string_to_ipv4 remote_ip),
+                (Uri_IP.string_to_ipv4 local_sp_ip),
+                (Uri_IP.string_to_ipv4 remote_sp_ip)
+            | _ -> failwith "Insufficient args"
+          in
+         lwt _ = setup_flows Config.net_intf mac_addr 
                     local_ip remote_ip local_sp_ip remote_sp_ip in
             return true
       with e -> 
@@ -212,12 +222,8 @@ module Manager = struct
 
   (* tearing down the flow that push traffic over the tunnel 
    * *)
-  let unset_flows dev local_tun_ip remote_sp_ip = 
-    (* outgoing flow removal *)
-    let flow = Sp_controller.delete_flow ~dl_type:(Some(0x0800)) 
-                 ~nw_dst_len:0 ~nw_dst:(Some(remote_sp_ip)) () in
-      
-    (* Setup incoming flow *)
+  let unset_flows dev local_tun_ip = 
+   (* Setup incoming flow *)
     let port = Net_cache.Port_cache.dev_to_port_id dev in
       Sp_controller.delete_flow ~in_port:(Some(port)) 
         ~dl_type:(Some(0x0800)) ~nw_dst_len:0
@@ -226,14 +232,16 @@ module Manager = struct
   let disable kind  args =
     match kind with 
       | "disable" ->
-          let local_tun_ip::remote_sp_ip::_ = args in
-          let [local_tun_ip; remote_sp_ip;] = 
-            List.map Uri_IP.string_to_ipv4 
-              [local_tun_ip; remote_sp_ip;] in 
-
-          (* disable required openflow flows *)
-          lwt _ = unset_flows Config.net_intf local_tun_ip 
-                    remote_sp_ip in
+          let local_tun_ip, _ =
+            match args with 
+            | local_tun_ip::remote_sp_ip::_ ->
+                (Uri_IP.string_to_ipv4 local_tun_ip, 
+                Uri_IP.string_to_ipv4 remote_sp_ip)
+            | _ -> failwith "Insufficient args"
+          in
+          (* disable required openflow flows 
+           * TODO is this right? *)
+          lwt _ = unset_flows Config.net_intf local_tun_ip in
             return ("true")
       | _ -> (
           printf "[direct] teardown action %s not supported in test" kind;

@@ -13,7 +13,6 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
-
 open Dns.Operators
 open Dns.Packet
 open Dns.Query 
@@ -70,22 +69,20 @@ let forward_dns_query_to_ns resolv q =
         | ans::_ -> return (sp_rr_to_packet ans q.q_name)
         | [] -> return (nxdomain)
   
-  with ex -> 
+  with _ -> 
     return (nxdomain) 
 
 let forward_dns_query_to_sp st sig0 dst q =
   (* Normalise the domain names to lower case *)
   try_lwt 
-    let src = !node_name in 
     let host = dst::dns_domain in
-    let _ = printf "getting sig0 packet yeah....\n%!" in 
     lwt res = Sec.resolve st ~sig0:(Some sig0) 
                 q.q_class q.q_type host in 
       match res with
         | Sec.Signed(res::_) -> 
             return (sp_rr_to_packet res (dst::dns_domain))
         | _ -> return(nxdomain)
-  with exn -> 
+  with _ -> 
     return (nxdomain) 
 
   (* Figure out the response from a query packet and its question section *)
@@ -125,10 +122,14 @@ let dns_t () =
     Dnssec_rsa.new_rsa_key_from_param 
       (Key.load_rsa_priv_key 
          (Config.conf_dir ^ "/signpost.pem")) in
-  lwt Some(sign_dnskey) = Key.dnskey_rdata_of_pem_priv_file
-                       (Config.conf_dir ^ "/signpost.pem")
-                       0 Dns.Packet.RSASHA1 in 
-  let _ = printf "sign rec : %s\n%!" (rdata_to_string sign_dnskey) in 
+  lwt sign_dnskey = 
+    match_lwt (Key.dnskey_rdata_of_pem_priv_file
+            (Config.conf_dir ^ "/signpost.pem")
+            0 Dns.Packet.RSASHA1) with
+      | Some sign_dnskey -> return sign_dnskey
+      | None -> failwith (sprintf "failed to read key %s" 
+                            (Config.conf_dir ^ "/signpost.pem"))
+  in 
 (*  let _ = Sec.add_anchor st sign_dnskey in *)
   let sign_tag = Sec.get_dnskey_tag sign_dnskey in
   let sig0 = (Dns.Packet.RSASHA1, sign_tag, (Sec.Rsa key), 
@@ -140,7 +141,7 @@ let dns_t () =
     | hd :: tl when (rdata_to_rr_type hd.rdata) = RR_DNSKEY -> 
         let _ = Sec.add_anchor st hd in
           add_root_dnskey tl 
-    | hd :: tl -> add_root_dnskey tl
+    | _ :: tl -> add_root_dnskey tl
   in 
   let _ = add_root_dnskey p.answers in 
   (* local nameserver *)
@@ -157,7 +158,7 @@ let get_hello_rpc ips =
                       "/client_tactics/get_local_device br0")) in
   let test = Re_str.split (Re_str.regexp " ") 
               (input_line ip_stream) in 
-  let _::mac::_ = test in
+  let mac = List.nth test 1 in
   let args = [!node_name; !node_ip; string_port; mac;] @ ips in
     create_notification "hello" args
 
@@ -177,7 +178,7 @@ let client_t () =
     lwt _ = Net_cache.Arp_cache.load_arp () in
     let xmit_t =
       while_lwt true do
-        update_server_if_state_has_changed ();
+        let _ = update_server_if_state_has_changed () in
         Lwt_unix.sleep 2.0
       done
     in

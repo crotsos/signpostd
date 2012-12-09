@@ -13,7 +13,6 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
-
 open Lwt
 open Printf
 
@@ -146,7 +145,7 @@ module Routing = struct
        if (not (List.mem entry routing_tbl.tbl)) then
         routing_tbl.tbl <- routing_tbl.tbl @ [entry;]
 
-  let del_next_hop ip mask gw dev_id = 
+  let del_next_hop ip mask _ _ = 
     routing_tbl.tbl <- 
     (List.filter 
        (fun a -> not ((a.ip = ip) && (a.mask = mask))) 
@@ -178,10 +177,9 @@ module Port_cache = struct
   let port_id_of_mac mac =
     try   
       Some(Hashtbl.find mac_cache mac )
-    with e -> None
+    with Not_found -> None
 
   let mac_of_port_id port_id =
-    let ret = ref None in
     Hashtbl.fold 
       (fun a b r ->
          if(b = port_id) then Some(a)
@@ -219,7 +217,7 @@ module Arp_cache = struct
     let open Int32 in 
     let _ =
       List.iter 
-        (fun (dev, mac, ip_l, ip_h) -> 
+        (fun (_, mac, ip_l, ip_h) -> 
            let ip = add (shift_left (of_int ip_h) 16 )
                       (of_int ip_l) in 
            let _ = add_mapping mac ip in 
@@ -239,7 +237,7 @@ module Arp_cache = struct
   let mac_of_ip ip =
     try 
       Some(Hashtbl.find cache ip)
-    with ex -> None
+    with _ -> None
   let ip_of_mac mac = 
       Hashtbl.fold 
         (fun ip dev r -> 

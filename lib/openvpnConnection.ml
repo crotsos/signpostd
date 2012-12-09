@@ -69,10 +69,10 @@ let state = {conns=Hashtbl.create 64; conn_counter=0l;}
  * Util functions to handle tactic state
  * *)
 let get_external_ip state name =
-  try 
-    let ret = List.find (fun a -> (a.name = name)) state.nodes in
-      ret.extern_ip
-  with Not_found -> None
+  let ret = List.find (fun a -> (a.name = name)) state.nodes in
+    match ret.extern_ip with
+    | Some a -> a
+    | None -> raise Not_found
 
 let get_tactic_ip state name =
   let ret = List.find (fun a -> (a.name = name)) state.nodes in
@@ -215,8 +215,7 @@ let start_vpn_server conn loc_node port q_rem_node domain rem_node =
 let start_vpn_client conn loc_node port q_rem_node domain rem_node =
   try_lwt
     let q_loc_node = Printf.sprintf "%s.d%d" loc_node Config.signpost_number in 
-    let Some(extern_ip) = get_external_ip conn q_rem_node in 
-    let extern_ip = Uri_IP.ipv4_to_string extern_ip in
+    let extern_ip = Uri_IP.ipv4_to_string (get_external_ip conn q_rem_node) in 
     let tunnel_ip = Uri_IP.ipv4_to_string (get_tactic_ip conn q_loc_node) in
       Nodes.send_blocking loc_node 
         (create_tactic_request "openvpn" CONNECT "client" 
@@ -342,9 +341,7 @@ let disable a b =
 (*
  * teardown code
  * *)
-let teardown a b =
-  return true
-
+let teardown _ _ = return true
 
 (**********************************************************************
  * Handle tactic signature ********************************************)

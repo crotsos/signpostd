@@ -13,8 +13,6 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
-
-
 open Lwt
 open Printf
 open Int64
@@ -79,14 +77,11 @@ let rec find_free_ip () =
         | false -> node_ip
         | true -> find_free_ip ()
 
-let new_node_with_name name ?(ips=[]) ?(public_ips=[]) () = {
-  name = name;
-  signalling_channel = Sp.NoSignallingChannel;
-  local_ips = ips;
-  public_ips = (Hashtbl.create 1);
-  mac = "\xfe\xff\xff\xff\xff\xff";
-  sp_ip = (find_free_ip ());
-}
+let new_node_with_name name ?(ips=[]) ?(public_ips=(Hashtbl.create 1)) 
+      () = 
+        {name = name;signalling_channel = Sp.NoSignallingChannel;
+        local_ips = ips;public_ips;mac = "\xfe\xff\xff\xff\xff\xff";
+        sp_ip = (find_free_ip ());}
 
 let update name node =
   Hashtbl.replace node_db.nodes name node
@@ -123,7 +118,7 @@ let set_local_name name =
   node_db.local_name <- name
 
 let get_nodes () = 
-  Hashtbl.fold (fun a b r ->  r @ [a] )
+  Hashtbl.fold (fun a _ r ->  r @ [a] )
     node_db.nodes []
 
 (* ---------------------------------------------------------------------- *)
@@ -200,9 +195,9 @@ let send_blocking name ?(timeout=Config.rpc_timeout) rpc =
   | _ -> raise (Sp.Client_error "Invalid rpc send ")
   in
   register_sender id wakener;
-  register_thread_timer id sleeper timeout;
-  send name rpc;
-  sleeper >>= fun result ->
+  let _ = register_thread_timer id sleeper timeout in
+  let _ = send name rpc in 
+  sleeper >>= fun _ ->
   match (Lwt.state sleeper) with
   | Lwt.Fail(Lwt.Canceled) -> begin
       (* the RPC timed out, so we return None, 
@@ -293,7 +288,7 @@ let add_node_public_ip name ip is_nattted is_random =
 let get_node_public_ips name = 
   try
     let node = Hashtbl.find node_db.nodes name in
-      Hashtbl.fold (fun k v ret -> [k] @ ret) node.public_ips [] 
+      Hashtbl.fold (fun k _ ret -> [k] @ ret) node.public_ips [] 
   with Not_found ->
     eprintf  "Cannot find node %s\n%!" name;
     []

@@ -12,7 +12,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Lesser General Public License for more details.
  *)
-
 type t =
   | Int of int64
   | Bool of bool
@@ -217,14 +216,14 @@ module Parser = struct
 		| IArray l :: tl, _ ->
 			s.stack <- IArray (v :: l) :: tl;
 			s.cursor <- Expect_comma_or_end
-		| io :: tl, _ ->
+		| io :: _, _ ->
 			raise_internal_error s ("unexpected " ^ (ivalue_to_str io) ^ " on stack at finish_value")
 
 	let pop_stack s =
 		match s.stack with
 		| IObject fields :: tl -> s.stack <- tl; finish_value s (Object (List.rev fields))
 		| IArray l :: tl       -> s.stack <- tl; finish_value s (Array (List.rev l))
-		| io :: tl             -> raise_internal_error s ("unexpected " ^ (ivalue_to_str io) ^ " on stack at pop_stack")
+		| io :: _             -> raise_internal_error s ("unexpected " ^ (ivalue_to_str io) ^ " on stack at pop_stack")
 		| []                   -> raise_internal_error s "empty stack at pop_stack"
 
 	let rec parse_char s c =

@@ -112,7 +112,7 @@ let disable a b =
     let _ = eprintf "[tor] connect error:%s\n%!" (Printexc.to_string exn) in
       return false
 
-let teardown a b = 
+let teardown _ _ = 
 (*    lwt res = 
       Lwt_list.map_p 
         (fun a -> 
@@ -149,7 +149,7 @@ let handle_request action method_name arg_list =
     with e -> 
       return (Sp.ResponseError (Printexc.to_string e)) 
  
-let handle_notification action method_name arg_list =
-  eprintf "Tor tactic doesn't handle notifications\n%!";
+let handle_notification _ _ _ =
+  let _ = eprintf "Tor tactic doesn't handle notifications\n%!" in 
   return ()
 

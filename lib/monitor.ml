@@ -14,6 +14,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
+
 open Lwt
 open Lwt_unix
 open Lwt_list
@@ -38,7 +39,11 @@ let connect_client ip port =
     lwt _ = 
        (Lwt_unix.sleep 4.0 >|= (fun _ -> raise MonitorDisconnect) ) <?> 
             Lwt_unix.connect client_sock(ADDR_INET(hentry, port)) in 
-    let ADDR_INET(loc_ip,loc_port) = Lwt_unix.getsockname client_sock in
+    let (loc_ip,loc_port) = 
+      match (Lwt_unix.getsockname client_sock) with
+      | ADDR_INET(loc_ip,loc_port) -> (loc_ip,loc_port)
+      | _ -> failwith "Invalid socket type"
+    in
     let pkt_bitstring = BITSTRING {
         (Uri_IP.string_to_ipv4 (Unix.string_of_inet_addr loc_ip)):32;
         loc_port:16; (String.length (Nodes.get_local_name ())):16;
@@ -46,17 +51,16 @@ let connect_client ip port =
     let pkt = Bitstring.string_of_bitstring pkt_bitstring in 
     lwt _ = Lwt_unix.send client_sock pkt 0 (String.length pkt) [] in
     let rcv_buf = String.create 2048 in 
-    lwt recvlen = Lwt_unix.recv client_sock rcv_buf 0 1048 [] in
-
-        Lwt_unix.shutdown client_sock SHUTDOWN_ALL; 
-        return ()
+    lwt _ = Lwt_unix.recv client_sock rcv_buf 0 1048 [] in
+    let _ = Lwt_unix.shutdown client_sock SHUTDOWN_ALL in
+      return ()
 
 let monitor_state = 
   {monitored_ips = (Hashtbl.create 32);}
 
 let print_monitors () =
   Hashtbl.iter (
-    fun k v ->
+    fun k _ ->
       printf "monitoring %s...\n%!" k
   ) monitor_state.monitored_ips
 

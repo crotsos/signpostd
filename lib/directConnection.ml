@@ -71,8 +71,7 @@ let get_state a b =
  * weight function
  * *)
 
-let weight a b = 
-  direct_weight 
+let weight _ _ = direct_weight 
 
 (*
  * Testing methods 
@@ -115,11 +114,11 @@ let test a b =
         return None
   in
 
-  lwt [b_extern_ip;a_extern_ip;] = 
+  lwt ret = 
     Lwt_list.map_p ( fun (a,b) -> pairwise_connection_test a b) 
              [(a, b); (b,a)] in
-     match (a_extern_ip, b_extern_ip) with
-      | Some(a_extern_ip),Some(b_extern_ip) ->
+     match ret with
+      | Some(a_extern_ip)::Some(b_extern_ip)::_ ->
           (* In case we have a direct tunnel then the nodes will receive an 
           * ip from the subnet 10.3.(conn_id).0/24 *)
           let nodes = [ 
@@ -130,8 +129,7 @@ let test a b =
           conn.nodes <- nodes;
           return true
       (* go through cloud then *)
-      | _,_ -> 
-          return false
+      | _ -> return false
 
 (* ******************************************
  * Try to establish if a direct connection between two hosts is possible
@@ -149,8 +147,8 @@ let connect a b =
 let enable_direct conn a b = 
   (* Init server on b *)
   try_lwt
-    let [q_a; q_b] = List.map (
-      fun n -> Printf.sprintf "%s.d%d" n Config.signpost_number) [a; b] in 
+    let q_a = Printf.sprintf "%s.d%d" a Config.signpost_number in 
+    let q_b = Printf.sprintf "%s.d%d" b Config.signpost_number in 
     let rpc = 
       (create_tactic_request "direct" ENABLE "enable" 
          [(Nodes.get_node_mac b); 
@@ -175,7 +173,7 @@ let enable a b =
           lwt _ = (enable_direct conn a b) <&>
                      (enable_direct conn b a) in
             return true
-  with exn ->
+  with _ ->
     return false
       
 (*
@@ -205,7 +203,7 @@ let disable a b =
           lwt _ = (disable_direct conn a b) <&>
                      (disable_direct conn b a) in
             return true
-  with exn ->
+  with _ ->
     return false
 
 (*

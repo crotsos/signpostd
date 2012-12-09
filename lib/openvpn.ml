@@ -29,7 +29,7 @@ module Manager = struct
   
   (* local state of the tactic*)
   type conn_type = {
-    ip: string;    (* tunnel node ip address *)
+    ip: int32;     (* tunnel node ip address *)
     port: int;     (* port number of the openvpn server*)
     pid: int;      (* pid of the process *)
     dev_id:int;    (* tun tap device id *)
@@ -65,7 +65,7 @@ module Manager = struct
  * setup an echo udp listening socket. 
  *
  * *)
-  let run_server src_port port =
+  let run_server _ port =
     Printf.printf "[openvpn] Starting udp server\n%!";
     let buf = String.create 1500 in
     let sock =Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM
@@ -134,9 +134,12 @@ module Manager = struct
     match kind with
       (* start udp server *)
       | "server_start" -> (
-          let src_port::port::_ = args in 
-          let src_port = int_of_string src_port in
-          let port = int_of_string port in 
+          let src_port, port = 
+            match args with 
+            | src_port::port::_  -> 
+                (int_of_string src_port, int_of_string port)
+            | _ -> failwith "Insufficient args"
+            in 
           let _ = run_server src_port port in
             return ("OK"))
       (* code to stop the udp echo server*)
@@ -159,10 +162,15 @@ module Manager = struct
         end
       (* code to send udp packets to the destination*)
       | "client" -> (
-          let src_port :: port :: ips = args in 
-            lwt ip = run_client (int_of_string src_port) (int_of_string port) ips in
-              (printf "[openvpn] Received a reply from ip %s \n%!" ip);
-              return (ip))
+          let src_port, port, ips = 
+            match args with 
+            | src_port :: port :: ips -> 
+                (int_of_string src_port, int_of_string port, ips) 
+            | _ -> failwith "Insufficient args"
+          in 
+          lwt ip = run_client src_port port ips in
+          let _ = printf "[openvpn] Reply from %s \n%!" ip in
+            return (ip))
       | _ -> (
           printf "[openvpn] Action %s not supported in test" kind;
           return ("OK"))
@@ -198,8 +206,7 @@ module Manager = struct
          (Config.dir^"/client_tactics/get_local_device br0")) in
     let ips = Re_str.split (Re_str.regexp " ") 
                 (input_line ip_stream) in 
-    let _::mac::_ = ips in
-    let mac = Net_cache.mac_of_string mac in 
+    let mac = Net_cache.mac_of_string (List.nth ips 1) in
     
     (* Setup incoming flow *)
     let actions = [ OP.Flow.Set_nw_dst(local_sp_ip);
@@ -219,15 +226,17 @@ module Manager = struct
               "/client_tactics/openvpn/openvpn_tactic.sh" in
     let exec_cmd = 
       if ((Nodes.get_local_name ()) = "unknown" ) then
-        sprintf "%s %s %d %s d%d %s %s %s %s %s %s %d"
+        sprintf "%s %d %d %s d%d %s %s %s %s %s %s %d"
           cmd port conn_id Config.domain Config.signpost_number
-          node server_ip domain Config.conf_dir Config.tmp_dir
+          node (Uri_IP.ipv4_to_string server_ip) domain 
+          Config.conf_dir Config.tmp_dir
           Config.external_dns 5354
       else
-        sprintf "%s %s %d %s %s.d%d %s %s %s %s %s %s %d"
+        sprintf "%s %d %d %s %s.d%d %s %s %s %s %s %s %d"
           cmd port conn_id Config.domain (Nodes.get_local_name ())
-          Config.signpost_number node server_ip domain 
-          Config.conf_dir Config.tmp_dir Config.external_dns 5354 in
+          Config.signpost_number node (Uri_IP.ipv4_to_string server_ip)
+          domain Config.conf_dir Config.tmp_dir Config.external_dns 
+          5354 in
       printf "[openvpn] executing %s\n%!" exec_cmd;
     lwt _ = Lwt_unix.system exec_cmd in 
     let _ = Unix.create_process "openvpn" 
@@ -286,15 +295,15 @@ module Manager = struct
          * and start server *)
         let _ = printf "[openvpn] start serv add device %s\n%!" node in
         let dev_id = Tap.get_new_dev_ip () in 
-        lwt _ = Tap.setup_dev dev_id ip in
-        lwt dev_id = start_openvpn_daemon "0.0.0.0" port 
+        lwt _ = Tap.setup_dev dev_id (Uri_IP.ipv4_to_string ip) in
+        lwt dev_id = start_openvpn_daemon 0l port
                        node domain "server" dev_id in 
         lwt _ = Lwt_unix.sleep 1.0 in 
         let pid = read_pid_from_file (Config.tmp_dir ^ "/" ^ 
                                       domain ^"/server.pid") in 
-          Hashtbl.add conn_db.conns (domain) 
-            {ip=ip;port=(int_of_string port);pid;
-             dev_id;nodes=[node ^ "." ^ Config.domain]; conn_id;rem_node;};
+        let _ = Hashtbl.add conn_db.conns (domain) 
+            {ip;port;pid;dev_id;nodes=[node ^ "." ^ Config.domain];
+            conn_id;rem_node;} in 
           return(dev_id) ) 
  
 
@@ -329,30 +338,31 @@ module Manager = struct
       sizeof_arp
  
 
-  let send_gratuitous_arp local_ip = 
-    let controller = Sp_controller.get_ctrl () in 
-    let dpid = Sp_controller.get_dpid ()  in
-
-    let nw_src = Uri_IP.string_to_ipv4 local_ip in
+  let send_gratuitous_arp nw_src = 
     let ip_stream = (Unix.open_process_in
                        (Config.dir ^ 
                         "/client_tactics/get_local_device br0")) in
     let test = Re_str.split (Re_str.regexp " ") 
                  (input_line ip_stream) in 
-    let _::dl_src::_ = test in
-    let dl_src = Net_cache.mac_of_string dl_src in
+    let dl_src = Net_cache.mac_of_string (List.nth test 1) in
     let data = OP.marshal_and_sub (create_gratituous_arp dl_src nw_src) 
                  (Lwt_bytes.create 512) in
-    lwt pkt = Sp_controller.send_packet data [ OP.(Flow.Output(Port.All , 2000))] in
+    lwt _ = Sp_controller.send_packet data [ OP.(Flow.Output(Port.All , 2000))] in
       return ()
 
   let connect kind args =
     match kind with
     | "server" ->(
       try_lwt
-        let port::node::rem_node::domain::conn_id::local_ip::_ = args in
-        let conn_id = Int32.of_string conn_id in 
-        lwt _ = get_domain_dev_id node domain port local_ip conn_id rem_node in
+        let (port,node,rem_node,domain,conn_id,local_ip) =
+          match args with 
+          | port::node::rem_node::domain::conn_id::local_ip::_ ->
+              (int_of_string port, node, rem_node, domain, 
+              Int32.of_string conn_id, Uri_IP.string_to_ipv4 local_ip)
+          | _ -> failwith "Insufficient args"
+        in
+        lwt _ = get_domain_dev_id node domain port local_ip 
+                  conn_id rem_node in
         lwt _ = send_gratuitous_arp local_ip in 
           return ("true")
       with e -> 
@@ -361,17 +371,24 @@ module Manager = struct
     )
     | "client" -> (
       try_lwt
-        let ip::port::node::rem_node::domain::conn_id::local_ip::_ = args in
-        let conn_id = Int32.of_string conn_id in 
+        let (ip, port, node, rem_node, domain, conn_id, local_ip) =
+          match args with
+          | ip::port::node::rem_node::domain::conn_id::local_ip::_ ->
+              (Uri_IP.string_to_ipv4 ip, int_of_string port, node, 
+              rem_node, domain, 
+              Int32.of_string conn_id, Uri_IP.string_to_ipv4 local_ip)
+          | _ -> failwith "Insufficient args"
+        in
         let dev_id = Tap.get_new_dev_ip () in
-        lwt _ = Tap.setup_dev dev_id local_ip in
+        lwt _ = Tap.setup_dev dev_id 
+                  (Uri_IP.ipv4_to_string local_ip) in
         lwt _ = start_openvpn_daemon ip port node domain 
                   "client" dev_id in
         let pid = read_pid_from_file (Config.tmp_dir ^ "/" ^ 
                                       domain ^"/client.pid") in 
         let _ = Hashtbl.add conn_db.conns (domain) 
-            {ip=ip;port=(int_of_string port);pid;
-             dev_id;nodes=[node ^ "." ^ Config.domain]; conn_id;rem_node;} in
+            {ip;port;pid;dev_id;nodes=[node ^ "." ^ Config.domain];
+            conn_id;rem_node;} in
         lwt _ = send_gratuitous_arp local_ip in 
           return ("true")
       with ex ->
@@ -384,32 +401,34 @@ module Manager = struct
     match kind with
     | "enable" ->(
       try_lwt
-        let conn_id::mac_addr::local_ip::remote_ip::
-            local_sp_ip::remote_sp_ip::_ = args in
-        let conn_id = Int32.of_string conn_id in
-        let [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] = 
-          List.map Uri_IP.string_to_ipv4 
-            [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] in 
-        let dev_id = ref None in 
-        let Some(conn) = 
+        let (conn_id, mac_addr, local_ip, remote_ip, 
+        local_sp_ip, remote_sp_ip) = 
+          match args with
+          | conn_id::mac_addr::local_ip::remote_ip::
+            local_sp_ip::remote_sp_ip::_ -> 
+              (Int32.of_string conn_id, mac_addr, 
+              Uri_IP.string_to_ipv4 local_ip, 
+              Uri_IP.string_to_ipv4 remote_ip,
+              Uri_IP.string_to_ipv4 local_sp_ip, 
+              Uri_IP.string_to_ipv4 remote_sp_ip)
+          | _ -> failwith "Insufficient args"
+        in
+        let conn = 
           Hashtbl.fold 
-            (fun _ conn -> function
-               | None -> 
-                   if (conn.conn_id = conn_id) then (
-                     dev_id := Some(conn.dev_id);
+            (fun _ conn r -> 
+                   if (conn.conn_id = conn_id) then
                      Some(conn)
-                   ) else (
-                     None
-                   )
-               | Some(r) -> Some(r)
+                   else r
             ) conn_db.conns None in 
-          match (!dev_id) with
-            | None -> raise (OpenVpnError(("openvpn enable invalid conn_id")))
-            | Some (dev) ->
-                lwt _ = setup_flows (sprintf "tap%d" dev) mac_addr 
-                          local_ip remote_ip local_sp_ip remote_sp_ip in
+          match (conn) with
+            | None -> 
+                raise (OpenVpnError(("openvpn enable invalid conn_id")))
+            | Some conn ->
+                lwt _ = setup_flows (sprintf "tap%d" conn.dev_id) 
+                          mac_addr local_ip remote_ip local_sp_ip 
+                          remote_sp_ip in
                 lwt _ = Lwt_unix.sleep 1.0 in
-                lwt _ = send_gratuitous_arp (Uri_IP.ipv4_to_string local_ip) in 
+                lwt _ = send_gratuitous_arp local_ip in 
                 let _ = Monitor.add_dst (Uri_IP.ipv4_to_string remote_sp_ip) 
                           conn.rem_node "openvpn" in
                   return true
@@ -423,9 +442,6 @@ module Manager = struct
   (* tearing down the flow that push traffic over the tunnel 
    * *)
   let unset_flows dev local_tun_ip remote_sp_ip = 
-    let controller = Sp_controller.get_ctrl () in 
-    let dpid = Sp_controller.get_dpid ()  in
-
     lwt port = get_port dev in 
 (*     let Some(port) = Net_cache.Port_cache.dev_to_port_id dev in *)
 
@@ -440,7 +456,7 @@ module Manager = struct
       return ()
   let teardown kind args = 
     match kind with
-      | "teardown" ->
+      | "teardown" -> begin
         let conn_id = Int32.of_string (List.hd args) in 
         let state = ref None in 
         let _ = 
@@ -456,26 +472,29 @@ module Manager = struct
                     Unix.kill state.pid Sys.sigkill
                 in 
                   return ("true")
+      end
       | _ -> (
           printf "[openvpn] disconnect action %s not supported in test" kind;
           return ("false"))
 
   let disable kind  args =
     match kind with 
-      | "disable" ->
+      | "disable" -> begin
         try_lwt 
-          let conn_id::local_tun_ip::remote_sp_ip::_ = args in
-          let conn_id = Int32.of_string conn_id in
-          let [local_tun_ip; remote_sp_ip;] = 
-            List.map Uri_IP.string_to_ipv4 
-              [local_tun_ip; remote_sp_ip;] in 
-          let dev_id = ref None in 
-          let _ = 
-            Hashtbl.iter 
-              (fun _ conn -> 
+          let (conn_id, local_tun_ip, remote_sp_ip) =
+            match args with 
+            | conn_id::local_tun_ip::remote_sp_ip::_ ->
+                (Int32.of_string conn_id, Uri_IP.string_to_ipv4 local_tun_ip, 
+                Uri_IP.string_to_ipv4 remote_sp_ip)
+            | _ -> failwith "Insufficient args"
+          in
+          let dev_id = 
+            Hashtbl.fold 
+              (fun _ conn r -> 
                  if (conn.conn_id = conn_id) then
-                   dev_id := Some(conn.dev_id)) conn_db.conns in 
-            match (!dev_id) with
+                   Some(conn.dev_id)
+                 else r) conn_db.conns None in 
+            match (dev_id) with
               | None -> raise (OpenVpnError("teardown invalid conn_id"))
               | Some (dev) ->
                   (* disable required openflow flows *)
@@ -485,6 +504,7 @@ module Manager = struct
                    return ("true")
         with exn ->
           raise (OpenVpnError((Printexc.to_string exn)))
+      end
       | _ -> (
           printf "[openvpn] teardown action %s not supported in test" kind;
           return ("false"))

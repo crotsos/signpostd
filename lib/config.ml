@@ -22,7 +22,7 @@ let ip_slash_24 = "172.16.11."
 (* This is the ip of the local test machine *)
 let external_ip = "23.23.179.30"
 let external_dns = "23.23.179.30"
-let dir = "/home/ubuntu/signpostd/"
+let dir = "/root/signpostd/"
 let conf_dir = dir ^ "/conf/"
 let tmp_dir = dir ^ "/tmp/"
 let iodine_node_ip = "172.16.11.1"

@@ -14,8 +14,6 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
-
-
 open Lwt
 open Lwt_unix
 open Printf
@@ -403,17 +401,13 @@ let register_handler_new  ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None)
             (Lwt_bytes.create 4096) in
  lwt _ = OC.send_of_data controller dpid bs in 
    return (Hashtbl.replace switch_data.cb_register flow cb)
+
+  
 let unregister_handler_new  ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) 
       ?(dl_dst=None)
       ?(dl_type=None) ?(nw_proto=None) ?(tp_dst=None) ?(tp_src=None)
       ?(nw_dst=None) ?(nw_dst_len=32) ?(nw_src=None) ?(nw_src_len=32)
       ?(dl_vlan_pcp=None) ?(nw_tos=None) () =
-  let controller = 
-    match switch_data.of_ctrl with 
-      | None -> failwith "controller not yet connected"
-      | Some(v) -> v
-  in 
-  let dpid = switch_data.dpid  in          
   let flow_wild = OP.Wildcards.({
     in_port=(is_none in_port); dl_vlan=(is_none dl_vlan); 
     dl_src=(is_none dl_src); dl_dst=(is_none dl_dst);
@@ -435,11 +429,7 @@ let unregister_handler_new  ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None)
                ~nw_dst:(option_default nw_dst 0l)
                ~tp_src:(option_default tp_src 0)
                ~tp_dst:(option_default tp_dst 0) () in 
-  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-              ~idle_timeout:0 ~hard_timeout:0
-             ~buffer_id:(-1) ~priority:100
-              [OP.Flow.Output(OP.Port.Controller, 150)] () in 
-  return (Hashtbl.remove switch_data.cb_register flow)
+ return (Hashtbl.remove switch_data.cb_register flow)
 
 
 

@@ -13,7 +13,6 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
-
 open Sp_rpc
 open Lwt
 open Printf
@@ -31,9 +30,13 @@ let config_json =
   ]
 
 let handle_hello fd args =
-  let node :: ip :: str_port :: mac :: local_ips = args in
-  let port = Int64.of_int (int_of_string str_port) in
-  eprintf "rpc: hello %s -> %s:%Li\n%!" node ip port;
+  let node, ip, port, mac, local_ips = 
+    match args with 
+    | node :: ip :: port :: mac :: local_ips ->
+        (node, ip, (int_of_string port), mac, local_ips)
+    | _ -> failwith "Insufficient args"
+  in
+  eprintf "rpc: hello %s -> %s:%d\n%!" node ip port;
   Nodes.set_signalling_channel node fd;
   Nodes.set_node_local_ips node local_ips;
   Nodes.set_node_mac node mac;
@@ -71,12 +74,20 @@ let handle_notification fd command arg_list =
     (String.concat ", " arg_list);
     handle_hello fd arg_list
   | Command("register_mobile_host") -> 
-      let a::b::_ = arg_list in
+      let a, b = 
+        match arg_list with 
+        | a::b::_ -> a,b
+        | _ -> failwith "Insufficient args"
+      in
     eprintf "register_mobile_host with args %s\n%!" 
     (String.concat ", " arg_list);
       return (Connections.store_tactic_state a b "direct" Connections.SUCCESS_ACTIVE None)
   | Command("tactic_disconnected") ->
-      let a::b::tactic::_ = arg_list in 
+      let a,b,tactic = 
+        match arg_list with 
+        | a::b::tactic::_ -> a,b,tactic
+        | _ -> failwith "Insufficient args"
+      in 
         Engine.disconnect a b tactic 
   | Command(value)  ->
     Printf.eprintf "Invalid command %s\n%!" value;

@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: b14fda61158e181f9bb9a642b5dbf50b)
+# DO NOT EDIT (digest: 71e80d2c85e860722ad2e50631f0acdc)
 Sp_rpc
 ClientSignalling
 Config
@@ -31,4 +31,5 @@ Tap
 Pktgen
 Tor
 TorConnection
+Tor_ctl
 # OASIS_STOP

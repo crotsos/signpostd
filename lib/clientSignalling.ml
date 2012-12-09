@@ -13,7 +13,6 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
-
 open Lwt_unix
 open Lwt
 open Printf
@@ -30,7 +29,11 @@ let connect_client ip port =
     lwt _ = 
        (Lwt_unix.sleep 4.0 >|= (fun _ -> failwith("Can't connect")) ) <?> 
             Lwt_unix.connect client_sock(ADDR_INET(hentry, port)) in 
-    let ADDR_INET(loc_ip,loc_port) = Lwt_unix.getsockname client_sock in
+    let loc_ip,loc_port = 
+      match Lwt_unix.getsockname client_sock with 
+      | ADDR_INET(loc_ip,loc_port) -> loc_ip,loc_port
+      | _ -> failwith "not an ADDR_INET socket addr"
+    in
     let pkt_bitstring = BITSTRING {
         (Uri_IP.string_to_ipv4 (Unix.string_of_inet_addr loc_ip)):32;
         loc_port:16; (String.length (Nodes.get_local_name ())):16;
@@ -46,8 +49,12 @@ let connect_client ip port =
 let handle_request _ command arg_list =
   match command with
   | Command("test_nat") ->
-      let ip::port::_ = arg_list in
-      lwt res = connect_client ip (int_of_string port) in 
+      let ip, port = 
+        match arg_list with
+          | ip::port::_ -> ip, (int_of_string port)
+          | _ -> failwith "test_nat invalid args"
+      in
+      lwt res = connect_client ip port in 
         return (Sp.ResponseValue (string_of_bool res))
   | Command c -> 
       let _ = eprintf "REQUEST %s with args %s\n%!" 

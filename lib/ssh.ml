@@ -14,8 +14,6 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
-
-
 open Lwt
 open Lwt_unix
 open Lwt_list
@@ -279,8 +277,7 @@ module Manager = struct
                        (Config.dir ^ 
                         "/client_tactics/get_local_device br0")) in
     let ips = Re_str.split (Re_str.regexp " ") (input_line ip_stream) in 
-    let _::mac::_ = ips in
-    let mac = Net_cache.mac_of_string mac in
+    let mac = Net_cache.mac_of_string (List.nth ips 1) in
 
     (* setup incoming flow *)
     let actions = [ OP.Flow.Set_nw_dst(local_sp_ip);
@@ -313,22 +310,28 @@ module Manager = struct
           let _ = server_add_client conn_id q_rem_domain rem_sp_ip dev_id rem_node in
             return(string_of_int dev_id))
         | "client" ->
-          let server_ip::ssh_port::rem_domain::rem_node::conn_id::loc_tun_ip::
-              rem_dev:: _ = args in
-          let conn_id = Int32.of_string conn_id in 
-          let ssh_port = int_of_string ssh_port in 
-          let rem_dev = int_of_string rem_dev in 
+          let (server_ip, ssh_port, rem_domain, rem_node, 
+              conn_id, loc_tun_ip, rem_dev) =
+                match args with
+                | server_ip::ssh_port::rem_domain::rem_node::conn_id::
+                  loc_tun_ip::rem_dev:: _ -> 
+                (Uri_IP.string_to_ipv4 server_ip, int_of_string ssh_port, 
+                rem_domain, rem_node,
+                Int32.of_string conn_id, loc_tun_ip, int_of_string rem_dev)
+                | _ ->  failwith "Insufficient args" 
+          in
           let loc_dev = Tap.get_new_dev_ip () in 
           lwt _ = client_add_server conn_id rem_domain
-                    (Uri_IP.string_to_ipv4 server_ip)
-                    ssh_port loc_dev rem_node in
+                    server_ip ssh_port loc_dev rem_node in
           lwt _ = Tap.setup_dev loc_dev loc_tun_ip in
-          lwt pid = client_connect server_ip ssh_port loc_dev rem_dev in
+          lwt pid = 
+            client_connect (Uri_IP.ipv4_to_string server_ip) 
+            ssh_port loc_dev rem_dev in
 
           (* update pid from client state *)
           let domain = sprintf "%s.%s" rem_domain Config.domain in
           let conn = Hashtbl.find conn_db.conns domain in 
-            conn.pid <- pid;
+          let _ = conn.pid <- pid in 
             return (string_of_int loc_dev)
         | _ -> 
             Printf.eprintf "[ssh] Invalid connect kind %s\n%!" kind;
@@ -358,8 +361,7 @@ module Manager = struct
                        (Config.dir ^ 
                         "/client_tactics/get_local_device br0")) in
     let ips = Re_str.split (Re_str.regexp " ") (input_line ip_stream) in 
-    let _::mac::_ = ips in
-    let mac = Net_cache.mac_of_string mac in
+    let mac = Net_cache.mac_of_string (List.nth ips 1) in
 
     (* setup incoming flow *)
     let actions = [ OP.Flow.Set_nw_dst(local_sp_ip);
@@ -375,39 +377,38 @@ module Manager = struct
     try_lwt
       match kind with
         | "enable" -> begin
-          let conn_id::mac_addr::local_ip::remote_ip::
-              local_sp_ip::remote_sp_ip::_ = args in
-          let conn_id = Int32.of_string conn_id in
-          let [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] = 
-            List.map Uri_IP.string_to_ipv4 
-              [local_ip; remote_ip; local_sp_ip; remote_sp_ip;] in 
-          let dev_id = ref None in 
-          let Some(conn) = 
+          let (conn_id,mac_addr,local_ip,remote_ip,local_sp_ip,remote_sp_ip) =
+            match args with
+            | conn_id::mac_addr::local_ip::remote_ip::local_sp_ip::remote_sp_ip::_ ->
+              (Int32.of_string conn_id, mac_addr, 
+              Uri_IP.string_to_ipv4 local_ip,
+              Uri_IP.string_to_ipv4 remote_ip,
+              Uri_IP.string_to_ipv4 local_sp_ip,
+              Uri_IP.string_to_ipv4 remote_sp_ip)
+            | _ -> failwith "Insufficient args" in
+          let conn = 
             Hashtbl.fold 
-              (fun _ conn -> function
-                   | None -> 
-                     (if (conn.conn_id = conn_id) then (
-                       dev_id := Some(conn.dev_id);
-                       Some(conn)
-                     ) else 
-                       None)
-                 | Some(r) -> Some(r)
-                ) conn_db.conns None
-          in 
-          lwt _ = match (!dev_id) with
+              (fun _ conn r -> 
+                if (conn.conn_id = conn_id) then 
+                  Some(conn)
+                      else r ) conn_db.conns None in 
+          lwt _ = match conn with
               | None -> 
                   raise (SshError(("openvpn enable invalid conn_id")))
-              | Some (dev) ->
-                  setup_flows (sprintf "tap%d" dev) mac_addr 
-                            local_ip remote_ip local_sp_ip remote_sp_ip
-
+              | Some conn ->
+                  lwt _ = setup_flows (sprintf "tap%d" conn.dev_id) mac_addr 
+                            local_ip remote_ip local_sp_ip remote_sp_ip in
+                  let _ = Monitor.add_dst (Uri_IP.ipv4_to_string remote_sp_ip) 
+                            conn.rem_node "ssh" in
+                  return ()
+ 
           in
-          let _ = Monitor.add_dst (Uri_IP.ipv4_to_string remote_sp_ip) 
-                    conn.rem_node "ssh" in
-            return ("true")
+           return ("true")
           end
+        | _ -> 
+            raise (SshError(sprintf "[openvpn] invalid enable action %s" kind))
       with exn ->
-        Printf.eprintf "[ssh]Error:%s\n%!" (Printexc.to_string exn);
+        let _ = eprintf "[ssh]Error:%s\n%!" (Printexc.to_string exn) in 
         raise (SshError(Printexc.to_string exn))
 
 (*
@@ -429,20 +430,21 @@ module Manager = struct
     try_lwt
       match kind with
         | "disable" -> begin
-          let conn_id::local_tun_ip::remote_sp_ip::_ = args in
-          let conn_id = Int32.of_string conn_id in
-          let [local_tun_ip; remote_sp_ip;] = 
-            List.map Uri_IP.string_to_ipv4 
-              [local_tun_ip; remote_sp_ip;] in 
-          let dev_id = ref None in 
-          let _ = 
-            Hashtbl.iter 
-              (fun _ conn -> 
+          let (conn_id, local_tun_ip, remote_sp_ip) = 
+            match args with 
+            | conn_id::local_tun_ip::remote_sp_ip::_ ->
+                (Int32.of_string conn_id, Uri_IP.string_to_ipv4 local_tun_ip,
+                Uri_IP.string_to_ipv4 remote_sp_ip) 
+            | _ -> failwith "Insufficient args"
+          in
+          let dev_id = 
+            Hashtbl.fold 
+              (fun _ conn r -> 
                  if (conn.conn_id = conn_id) then
-                   dev_id := Some(conn.dev_id)) conn_db.conns
-          in 
-          let _ = Monitor.del_dst (Uri_IP.ipv4_to_string remote_sp_ip) "ssh" in
-            match (!dev_id) with
+                   Some(conn.dev_id)
+                 else r ) conn_db.conns None in 
+           let _ = Monitor.del_dst (Uri_IP.ipv4_to_string remote_sp_ip) "ssh" in
+             match dev_id with
               | None -> 
                   raise (SshError(("openvpn disable invalid conn_id")))
               | Some (dev) ->
@@ -450,6 +452,8 @@ module Manager = struct
                             local_tun_ip remote_sp_ip in
                     return "true")
           end
+        | _ -> 
+            raise (SshError(sprintf "[ssh] unknown disable action %s" kind))
       with exn ->
         Printf.eprintf "[ssh]Error:%s\n%!" (Printexc.to_string exn);
         raise (SshError(Printexc.to_string exn))
@@ -462,16 +466,19 @@ module Manager = struct
     try_lwt
       match kind with
         | "teardown" -> begin
-            let conn_id::local_tun_ip::_ = args in
-            let conn_id = Int32.of_string conn_id in
-            let domain = ref None in
-            let _ = 
-              Hashtbl.iter 
-                (fun dom conn -> 
+          let (conn_id, local_tun_ip) = 
+            match args with
+              | conn_id::local_tun_ip::_ ->
+                  Int32.of_string conn_id, local_tun_ip
+              | _ -> failwith "Insufficient args"
+          in
+          let domain = 
+            Hashtbl.fold
+                (fun dom conn r -> 
                    if (conn.conn_id = conn_id) then
-                     domain := Some(dom)) conn_db.conns
-            in 
-            match (!domain) with
+                     Some(dom)
+                   else r) conn_db.conns None in 
+            match domain with
               | None -> 
                   raise (SshError(("ssh.teardown invalid conn_id")))
               | Some (domain) -> begin
@@ -488,7 +495,6 @@ module Manager = struct
                     Tap.unset_dev conn.dev_id local_tun_ip >> 
                     return "true"
                 end
-          
           end
         | _ -> 
             eprintf "[ssh] Invalid kind %s for action teardown\n%!" kind; 
@@ -497,9 +503,6 @@ module Manager = struct
       eprintf "[ssh] Teardown error: %s\n%!" (Printexc.to_string ex);
       raise (SshError(Printexc.to_string ex))
 
-  let pkt_in_cb _ _ _ = 
-
-    
-    return ()
+  let pkt_in_cb _ _ _ = return ()
 
 end

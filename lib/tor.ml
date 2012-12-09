@@ -60,17 +60,19 @@ module Manager = struct
     mutable process : process_none option;
     mutable monitor_wait : unit t option;
     mutable monitor_return : unit u option;
-    mutable tor_ctrl_fd : Lwt_unix.file_descr option;
+    mutable tor_ctrl : Tor_ctl.tor_ctl_state option;
     mutable server_list : int list;
     hosts : (int32, string) Hashtbl.t; 
   }
 
   let conn_db = 
-    {http_conns=(Hashtbl.create 0);process=None;hosts=(Hashtbl.create 32); 
-     monitor_wait=None; monitor_return=None; tor_ctrl_fd=None;server_list=[]}
+    {http_conns=(Hashtbl.create 0);process=None;
+    hosts=(Hashtbl.create 32); monitor_wait=None; 
+    monitor_return=None; tor_ctrl=None;server_list=[]}
 
 
   let tor_port = 9050
+  let tor_ctl_port = 9051
 
   let restart_tor () = 
     let pid = 
@@ -218,7 +220,7 @@ module Manager = struct
         (Int32.add conn.dst_isn 9l) 
         conn.dst_mac conn.src_mac
         conn.dst_ip conn.src_ip
-        9050 m.OP.Match.tp_src (* dst_port *) 0xffff in 
+        tor_port m.OP.Match.tp_src (* dst_port *) 0xffff in 
     lwt _ = 
       OC.send_of_data controller dpid
         (OP.marshal_and_sub
@@ -336,7 +338,7 @@ module Manager = struct
     in
     let m = OP.Match.raw_packet_to_match in_port data in
       match (m.OP.Match.tp_src, m.OP.Match.tp_dst) with
-        | (9050, dst_port) -> 
+        | (a, dst_port) when (a = tor_port) -> 
             handle_tor_incoming_pkt controller dpid m dst_port data
         | (src_port, dst_port) -> begin
             lwt is_tor = is_tor_conn m.OP.Match.nw_src src_port in 
@@ -419,7 +421,7 @@ module Manager = struct
           lwt _ = 
             Sp_controller.register_handler_new
               ~dl_type:(Some 0x0800) ~nw_proto:(Some(char_of_int 6)) 
-              ~tp_src:(Some 9050) http_pkt_in_cb in 
+              ~tp_src:(Some tor_port) http_pkt_in_cb in 
            lwt ret = run_client port ip in 
             return (string_of_bool ret)
     | _ -> raise(TorError(sprintf "Unsupported action %s" kind))
@@ -442,9 +444,14 @@ module Manager = struct
         let line = Re_str.global_replace multi_sp " " line in 
         let fields = Re_str.split sp line in 
         let ip_port = List.nth fields 1 in 
-        let ip::port::_ = Re_str.split colon ip_port in
-        if (Int32.of_string ("0x"^ip) = 0l ) then 
-            [(int_of_string ("0x"^port))] @ (parse_tcp_data fd)
+        let ip, port = 
+          match (Re_str.split colon ip_port) with
+          | ip::port::_ -> 
+              (Int32.of_string ("0x"^ip), (int_of_string ("0x"^port)))
+          | _ -> failwith "Invalid line format"
+        in
+        if (ip = 0l ) then 
+          [port] @ (parse_tcp_data fd)
         else 
           parse_tcp_data fd
       with End_of_file ->
@@ -458,7 +465,7 @@ module Manager = struct
     in
       parse_tcp_data fd 
 
-  let monitor_socket t = 
+  let monitor_socket st t = 
     nchoose 
     [ t; 
     (while_lwt true do 
@@ -467,11 +474,16 @@ module Manager = struct
         List.filter 
         (fun port ->
           not (List.mem port conn_db.server_list) ) servers in
-      let _ = 
-        List.iter (
-          fun port -> 
-            conn_db.server_list <- conn_db.server_list @ [port]
-        ) new_servers in
+      lwt _ = 
+        if (List.length new_servers > 0) then 
+          let _ = conn_db.server_list <- 
+            conn_db.server_list @ new_servers in 
+            lwt _ = Tor_ctl.expose_service st (tmp_dir ^ "/tor/")
+                      conn_db.server_list in
+              return ()
+        else
+          return () 
+      in 
       lwt _ = Lwt_unix.sleep 10.0 in 
         return ()
     done)]
@@ -482,10 +494,13 @@ module Manager = struct
         match conn_db.monitor_return with
         | Some _ -> return "true"
         | None ->
+            lwt st = Tor_ctl.init_tor_ctl "127.0.0.1" tor_ctl_port in 
+            
+            let _ = conn_db.tor_ctrl <- Some(st) in  
             let (t, u) = task () in
             let _ = conn_db.monitor_wait <- Some(t) in 
             let _ = conn_db.monitor_return <- Some(u) in 
-            let _ = ignore_result (monitor_socket t) in  
+            let _ = ignore_result (monitor_socket st t) in  
             return ("true")
       end
      | _ -> 
@@ -515,7 +530,7 @@ module Manager = struct
       lwt _ = 
         Sp_controller.register_handler_new
           ~dl_type:(Some 0x0800) ~nw_proto:(Some(char_of_int 6)) 
-          ~tp_src:(Some 9050) http_pkt_in_cb in 
+          ~tp_src:(Some tor_port) http_pkt_in_cb in 
         return "true"
         | _ -> raise (SocksError "invalid enable action")
     with exn -> 
@@ -532,7 +547,7 @@ module Manager = struct
     try_lwt 
       match kind with 
         | "disable" ->
-            let domain, ip = 
+            let _, ip = 
               match args with
                 | _::domain::ip::_ ->
                     domain, (Uri_IP.string_to_ipv4 ip)
@@ -546,7 +561,9 @@ module Manager = struct
             lwt _ = 
               Sp_controller.unregister_handler_new
                 ~dl_type:(Some 0x0800) ~nw_proto:(Some(char_of_int 6)) 
-                ~tp_src:(Some 9050) () in 
+                ~tp_src:(Some tor_port) () in
+            let _ = 
+              Hashtbl.remove conn_db.hosts ip in 
             (* need to delete also the existing exact match rules *)
               return ("true")
       with exn -> 

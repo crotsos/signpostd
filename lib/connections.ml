@@ -13,7 +13,6 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
-
 open Lwt
 open Printf
 open List
@@ -146,58 +145,48 @@ let dump_tunnels () =
     "/home/ubuntu/SignpostDemo/SignpostDemoWeb/signpost-sigcomm-connections-live.json" 
   in 
   let out = [] in 
-  let res = Hashtbl.fold 
-              (fun k v r ->
-                let (cl, s)  = k in 
-                 match (get_link_active_tactic cl s) with
-                   | None -> 
-                       r
-                   | Some(tactic) ->
-                       match (cl, s) with
-                         | ("home", _) -> 
-                          (r @ 
-                            ([Json.Object 
-                              [("client", Json.String s); 
-                               ("server", Json.String cl);
-                               ("type", Json.String tactic);
-                              ]]))
-                         | (_, "home") -> 
-                          (r @ 
-                            ([Json.Object 
-                              [("client", Json.String cl); 
-                               ("server", Json.String s);
-                               ("type", Json.String tactic);
-                              ]]))
-                         | ("slave", _) -> 
-                          (r @ 
-                            ([Json.Object 
-                              [("client", Json.String s); 
-                               ("server", Json.String cl);
-                               ("type", Json.String tactic);
-                              ]]))
-                         | (_, "slave") -> 
-                          (r @ 
-                            ([Json.Object 
-                              [("client", Json.String cl); 
-                               ("server", Json.String s);
-                               ("type", Json.String tactic);
-                              ]]))
-                         | (_, _) -> 
-                          (r @ 
-                            ([Json.Object 
-                              [("client", Json.String cl); 
-                               ("server", Json.String s);
-                               ("type", Json.String tactic);
-                              ]]))
-              ) 
+  let res = 
+    Hashtbl.fold 
+      (fun k _ r ->
+        let (cl, s)  = k in 
+        match (get_link_active_tactic cl s) with
+        | None -> r
+        | Some(tactic) -> begin
+            match (cl, s) with
+              | ("home", _) -> 
+                (r @ 
+                  ([Json.Object 
+                  [("client", Json.String s); 
+                  ("server", Json.String cl);
+                  ("type", Json.String tactic);]]))
+              | (_, "home") -> 
+                  (r @ 
+                    ([Json.Object 
+                    [("client", Json.String cl); 
+                    ("server", Json.String s);
+                    ("type", Json.String tactic);]]))
+              | ("slave", _) -> 
+                  (r @ 
+                    ([Json.Object 
+                      [("client", Json.String s); 
+                      ("server", Json.String cl);
+                      ("type", Json.String tactic);]]))
+              | (_, "slave") -> 
+                  (r @ 
+                     ([Json.Object 
+                       [("client", Json.String cl); 
+                       ("server", Json.String s);
+                       ("type", Json.String tactic);]]))
+              | (_, _) -> 
+                  (r @ 
+                     ([Json.Object 
+                     [("client", Json.String cl); 
+                       ("server", Json.String s);
+                       ("type", Json.String tactic);]]))
+                     end
+                  ) 
               connections out in
   let str_out = Json.to_string (Json.Array res) in 
-(*
-  let _ = 
-    if ((List.length res) > 0) then
-      printf "%s\n%!" str_out
-  in
- *)
   let output = open_out file in 
   let _ = output_string output str_out in 
   let _ = close_out output in 
@@ -213,7 +202,7 @@ let print_tactic_state a b =
             printf "\t %s -> %s \n%!" k (string_of_tactic_state v.tactic_state)
         ) conn.tactic 
     with Not_found ->
-      eprintf "connections print no connection found %s - %s\n%!" a b
+      eprintf "[connections] no connection found %s - %s\n%!" a b
 
 
 let store_tactic_state a b tactic_name link_state conn_id = 
@@ -254,7 +243,7 @@ let get_link_connection_status a b =
   try
     let conn = Hashtbl.find connections key in
       Hashtbl.fold (
-        fun t st r ->
+        fun _ st r ->
           match ( r, st.tactic_state) with
             | (SUCCESS_ACTIVE, _) ->
                 r
@@ -300,7 +289,7 @@ let get_tactic_status a b tactic_name =
 
 let get_active_connections () = 
   Hashtbl.fold (
-    fun k v ret ->
+    fun k _ ret ->
       let (a, b) = k in
       match (get_link_connection_status a b) with
         | SUCCESS_ACTIVE ->

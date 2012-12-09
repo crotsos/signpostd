@@ -15,6 +15,7 @@
  *)
 
 
+
 open Lwt
 open Printf
 open Connections
@@ -22,11 +23,11 @@ open Connections
 let tactics = [
 (*      (module DirectConnection : Sp.TacticSig);   *)
 (*    (module AvahiConnection : Sp.TacticSig);  *)
-     (module OpenvpnConnection : Sp.TacticSig); 
-     (module SshConnection : Sp.TacticSig);
+  (module OpenvpnConnection : Sp.TacticSig); 
+  (module SshConnection : Sp.TacticSig);
 (*      (module SshConnection : Sp.TacticSig); *)
 (*   (module PrivoxyConnection : Sp.TacticSig);  *)
-(*   (module TorConnection : Sp.TacticSig);  *)
+  (module TorConnection : Sp.TacticSig);  
 (*      (module NatpunchConnection : Sp.TacticSig); *)
   ]
 
@@ -262,7 +263,7 @@ let tunnel_monitor_t () =
         fun (a, b) -> 
           let waiter, wakener = Lwt.task () in 
           lwt _ = connect wakener a b in
-          lwt res = waiter in
+          lwt _ = waiter in
             return ()
       ) conns 
   done

@@ -20,6 +20,9 @@ open Lwt_unix
 open Printf
 open Int64
 open Sp_rpc
+open Net_cache
+open Config 
+
 
 module OP = Openflow.Ofpacket
 module OC = Openflow.Ofcontroller
@@ -63,16 +66,16 @@ let state = {conns=Hashtbl.create 64; conn_counter=0l;}
  * Util functions to handle tactic state
  * *)
 let get_external_ip state name =
-  try 
     let ret = List.find (fun a -> (a.name = name)) state.nodes in
-      ret.extern_ip
-  with Not_found -> None
+    match ret.extern_ip with
+    | Some a -> a 
+    | None -> raise Not_found
 
 let get_dev_id state name =
-  try
     let ret = List.find (fun a -> (a.name = name)) state.nodes in
-      ret.dev_id
-  with Not_found -> None
+      match ret.dev_id with
+      | Some a -> a 
+      | None -> raise Not_found
 
 let set_dev_id state name dev_id =
   let ret = List.find (fun a -> (a.name = name)) state.nodes in
@@ -225,8 +228,9 @@ let start_ssh_server conn loc_node rem_node =
 let start_ssh_client conn loc_node rem_node rem_dev_id =
   try_lwt
     let q_rem_node = sprintf "%s.d%d" rem_node Config.signpost_number in 
-    let Some(server_ip) = (get_external_ip conn 
-                             (sprintf "%s.d%d" loc_node Config.signpost_number)) in
+    let server_ip = 
+      get_external_ip conn 
+        (sprintf "%s.d%d" loc_node Config.signpost_number) in
     let server_ip = Uri_IP.ipv4_to_string server_ip in
           
     let loc_tun_ip = 
@@ -236,7 +240,7 @@ let start_ssh_client conn loc_node rem_node rem_dev_id =
                  [server_ip; (string_of_int ssh_port); q_rem_node; rem_node; 
                   (Int32.to_string conn.conn_id); loc_tun_ip; 
                   rem_dev_id;]) in
-    lwt res = Nodes.send_blocking loc_node rpc in 
+    lwt _ = Nodes.send_blocking loc_node rpc in 
       return ()
   with exn -> 
     printf "[ssh] client error %s: %s\n%!" loc_node (Printexc.to_string exn);
@@ -289,8 +293,12 @@ let start_local_server conn a b =
       return ()
   in
   try_lwt
-    let [a_dev; b_dev] = List.map create_devices [a;b] in
-    lwt _ = (connect_client a a_dev b) <&> (connect_client b b_dev a) in
+    lwt _ = 
+      Lwt_list.map_p 
+       (fun (a, b) -> 
+         let a_dev = create_devices a in 
+            connect_client a a_dev b )
+       [(a, b);(b, a)] in
 (*     lwt _ = setup_cloud_flows a_dev b_dev in  *)
       return ("true")
   with ex ->
@@ -324,12 +332,10 @@ let connect a b =
  * *)
 
 let setup_cloud_flows a_dev b_dev a_tun_ip b_tun_ip = 
-  let [a_port; b_port] = 
-    List.map ( 
-      fun dev -> Net_cache.Port_cache.dev_to_port_id (Printf.sprintf "tap%d" dev)) 
-      [a_dev; b_dev] in
-  
-  let actions = [OP.Flow.Output((OP.Port.port_of_int b_port), 
+  let a_port = Port_cache.dev_to_port_id (sprintf "tap%d" a_dev) in 
+  let b_port = Port_cache.dev_to_port_id (sprintf "tap%d" b_dev) in 
+
+ let actions = [OP.Flow.Output((OP.Port.port_of_int b_port), 
                                 2000);] in
   lwt _ = Sp_controller.setup_flow ~in_port:(Some(a_port)) 
             ~dl_type:(Some(0x0800)) ~nw_dst_len:0 
@@ -346,8 +352,8 @@ let setup_cloud_flows a_dev b_dev a_tun_ip b_tun_ip =
 let enable_ssh conn a b = 
   (* Init server on b *)
   try_lwt
-    let [q_a; q_b] = List.map (
-      fun n -> Printf.sprintf "%s.d%d" n Config.signpost_number) [a; b] in 
+    let q_a = sprintf "%s.d%d" a signpost_number in 
+    let q_b = sprintf "%s.d%d" b signpost_number in 
     let rpc_a = 
       (create_tactic_request "ssh" ENABLE "enable" 
          [(Int32.to_string conn.conn_id); (Nodes.get_node_mac b); 
@@ -365,11 +371,10 @@ let enable_ssh conn a b =
 let enable_cloud_ssh conn a b =
   try_lwt 
       if (conn.direction = 3) then (
-        let [q_a; q_b] = 
-          List.map (fun n -> sprintf "%s.d%d" n Config.signpost_number) 
-            [a;b] in 
-        let Some(a_dev) = get_dev_id conn q_a in
-        let Some(b_dev) = get_dev_id conn q_b in
+        let q_a = sprintf "%s.d%d" a signpost_number in 
+        let q_b = sprintf "%s.d%d" b signpost_number in 
+        let a_dev = get_dev_id conn q_a in
+        let b_dev = get_dev_id conn q_b in
         let a_tun_ip = get_tactic_ip conn q_a in
         let b_tun_ip = get_tactic_ip conn q_b in
           setup_cloud_flows a_dev b_dev a_tun_ip b_tun_ip
@@ -434,8 +439,7 @@ let disable a b =
 (*
  * teardown code
  * *)
-let teardown a b =
-  return true
+let teardown _ _ = return true
 
 (* ******************************************
  * A tactic to setup a layer 2 ssh tunnel

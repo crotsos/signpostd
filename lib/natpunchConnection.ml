@@ -20,6 +20,7 @@ open Lwt_unix
 open Lwt_list
 open Printf
 open Sp_rpc
+open Net_cache
 
 module OP = Openflow.Ofpacket
 module OC = Openflow.Ofcontroller
@@ -76,8 +77,7 @@ let get_state a b =
  * weight function
  * *)
 
-let weight a b = 
-  natpanch_weight 
+let weight _ _ = natpanch_weight 
 
 (*
  * Testing methods 
@@ -106,7 +106,7 @@ let test a b =
       | true ->
           (* In case we have a direct tunnel then the nodes will receive an 
           * ip from the subnet 10.3.(conn_id).0/24 *)
-          let [extern_a; extern_b] = 
+          let ip_list = 
             List.map 
               (fun a -> 
                  Uri_IP.string_to_ipv4 
@@ -114,9 +114,9 @@ let test a b =
               [a; b] in
           let nodes = [ 
             {name=(sprintf "%s.d%d" a Config.signpost_number); 
-             extern_ip=extern_a;} ;
+             extern_ip=(List.nth ip_list 0);} ;
             {name=(sprintf "%s.d%d" b Config.signpost_number);
-             extern_ip=extern_b;}] in
+             extern_ip=(List.nth ip_list 1);}] in
           conn.nodes <- nodes;
           return true
       (* test failed, so no conection :S *)
@@ -128,12 +128,7 @@ let test a b =
  * Conection methods
  * *)
 let connect a b =
-  try_lwt
-    let conn = Hashtbl.find natpanch_state.conns (gen_key a b) in 
-      return true
-  with exn ->
-    printf "[natpunch] connect failed at test betwen %s - %s\n%!" a b; 
-    return false
+    return (Hashtbl.mem natpanch_state.conns (gen_key a b))
 
 let enable a b = 
   try_lwt
@@ -141,8 +136,8 @@ let enable a b =
       (* register an openflow hook for tcp connections destined 
        * to specific port *)
     let enable_client a b =
-      let a_q = sprintf "%s.d%d" a Config.signpost_number in
-      let b_q = sprintf "%s.d%d" b Config.signpost_number in 
+(*      let a_q = sprintf "%s.d%d" a Config.signpost_number in
+      let b_q = sprintf "%s.d%d" b Config.signpost_number in *)
       let external_ip = (List.hd (Nodes.get_node_public_ips b)) in
       let rpc = 
         create_tactic_request "natpanch" ENABLE "register_host"
@@ -189,7 +184,12 @@ let handle_notification _ method_name arg_list =
     | "client_connect" -> (
         try_lwt
           (* connection parameter *)
-          let a::b::tp_src::tp_dst::isn::ack::_ = arg_list in 
+          let (a, b, tp_src, tp_dst, isn, ack) = 
+            match arg_list with 
+            | a::b::tp_src::tp_dst::isn::ack::_ ->
+                (a, b, tp_src, tp_dst, isn, ack)
+            | _ -> failwith "Insufficient args"
+          in 
 
           let port = 
             OP.Port.port_of_int
@@ -201,11 +201,10 @@ let handle_notification _ method_name arg_list =
               (fun a ->
                 (Uri_IP.string_to_ipv4 
                    (List.hd (Nodes.get_node_public_ips a)))) [a;b] in
-          let Some(mac_a) = Net_cache.Arp_cache.mac_of_ip ip_a in
-          let Some(mac_b) = Net_cache.Arp_cache.mac_of_ip ip_b in
-            Printf.printf "dst_mac:%s, src_mac:%s\n%!" 
-              (Nodes.get_node_mac b) 
-              (Nodes.get_node_mac a);
+          let [Some(mac_a); Some(mac_b);] =
+            List.map (fun a-> 
+              Arp_cache.mac_of_ip a) [ip_a; ip_b] in 
+
           let pkt = gen_server_synack (Int32.of_string isn) 
                       (Int32.of_string ack)
                       mac_b "\xf0\xad\x4e\x00\xcb\xab" ip_a ip_b
