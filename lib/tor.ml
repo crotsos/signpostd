@@ -75,28 +75,32 @@ module Manager = struct
   let tor_ctl_port = 9051
 
   let restart_tor () = 
-    let pid = 
+    lwt pid = 
       match (conn_db.process) with
         | None -> 
-            let pid = open_process_none 
-                        (dir ^ "client_tactics/tor/tor.sh", 
-                         [|dir ^ "/client_tactics/tor/tor.sh"; 
-                           dir;|]) in 
+            let pid = 
+              open_process_none 
+                (dir ^ "client_tactics/tor/tor.sh", 
+                 [|dir ^ "/client_tactics/tor/tor.sh"; 
+                   dir;|]) in 
             let _ = conn_db.process <- Some (pid) in 
-              pid
-        | Some pid -> pid
+            lwt _ = Lwt_unix.sleep 1.0 in 
+              return pid
+        | Some pid -> return pid
     in
-      pid#pid
+      return pid#pid
 
   let load_socks_sockets pid = 
     let fd_dir = (Printf.sprintf "/proc/%d/fd/" pid) in 
       let files = Sys.readdir fd_dir in 
-      let sock_array = Array.map (fun dir -> 
-                      let file_path = Printf.sprintf "%s/%s" fd_dir dir in
-                      let file_stat = Unix.stat file_path in 
-                        match file_stat.Unix.st_kind with
-                          | Unix.S_SOCK -> file_stat.Unix.st_ino
-                          | _ -> 0
+      let sock_array = 
+        Array.map 
+          (fun dir -> 
+             let file_path = Printf.sprintf "%s/%s" fd_dir dir in
+             let file_stat = Unix.stat file_path in 
+               match file_stat.Unix.st_kind with
+                 | Unix.S_SOCK -> file_stat.Unix.st_ino
+                 | _ -> 0
         ) files in 
         List.filter (fun fd -> (fd <> 0)) (Array.to_list sock_array) 
           
@@ -105,7 +109,7 @@ module Manager = struct
  *  openflow comtrol methods
  * *)
   let is_tor_conn ip port = 
-    let pid = restart_tor () in
+    lwt pid = restart_tor () in
 
     let socket_ids = load_socks_sockets pid in 
 (*     List.iter (fun fd -> Printf.printf "%d\n%!" fd ) socket_ids; *)
@@ -398,11 +402,10 @@ module Manager = struct
     try_lwt 
     match kind with
       | "server_start" -> begin
-          let _ = restart_tor () in 
+          lwt _ = restart_tor () in 
           let fd = open_in (tmp_dir ^ "/tor/hostname") in 
           let name = input_line fd in 
           let _ = close_in fd in
-          lwt _ = Lwt_unix.sleep 1.0 in 
             return name
         end
       | "connect" ->
@@ -489,23 +492,28 @@ module Manager = struct
     done)]
 
   let connect kind _ =
-    match kind with 
-      | "listen" -> begin
-        match conn_db.monitor_return with
-        | Some _ -> return "true"
-        | None ->
-            lwt st = Tor_ctl.init_tor_ctl "127.0.0.1" tor_ctl_port in 
-            
-            let _ = conn_db.tor_ctrl <- Some(st) in  
-            let (t, u) = task () in
-            let _ = conn_db.monitor_wait <- Some(t) in 
-            let _ = conn_db.monitor_return <- Some(u) in 
-            let _ = ignore_result (monitor_socket st t) in  
-            return ("true")
-      end
-     | _ -> 
-          Printf.eprintf "[socks] Invalid connection kind %s \n%!" kind;
-          raise (SocksError "Invalid connection kind")
+    try_lwt
+      match kind with 
+        | "listen" -> begin
+            lwt _ = restart_tor () in 
+              match conn_db.monitor_return with
+                | Some _ -> return "true"
+                | None ->
+                    lwt st = Tor_ctl.init_tor_ctl "127.0.0.1" tor_ctl_port in 
+              
+                    let _ = conn_db.tor_ctrl <- Some(st) in  
+                    let (t, u) = task () in
+                    let _ = conn_db.monitor_wait <- Some(t) in 
+                    let _ = conn_db.monitor_return <- Some(u) in 
+                    let _ = ignore_result (monitor_socket st t) in  
+                      return ("true")
+          end
+       | _ -> 
+            Printf.eprintf "[socks] Invalid connection kind %s \n%!" kind;
+            raise (SocksError "Invalid connection kind")
+    with exn ->
+      let _ = eprintf "[tor] enable error %s\n%!" (Printexc.to_string exn) in 
+        raise (SocksError (Printexc.to_string exn))
  
 (**
   * enable event
@@ -514,13 +522,13 @@ module Manager = struct
     try_lwt
     match kind with
     | "forward" ->
-        let _ = restart_tor () in 
-      let domain, ip = 
-        match args with
-        | _::domain::ip::_ ->
-            domain, (Uri_IP.string_to_ipv4 ip)
-        | _ -> 
-          raise (SocksError "Insufficient parameters")
+        lwt _ = restart_tor () in 
+        let domain, ip = 
+          match args with
+            | _::domain::ip::_ ->
+                domain, (Uri_IP.string_to_ipv4 ip)
+            | _ -> 
+                raise (SocksError "Insufficient parameters")
       in
       let _ = Hashtbl.replace conn_db.hosts ip domain in 
       lwt _ = 
@@ -567,7 +575,7 @@ module Manager = struct
             (* need to delete also the existing exact match rules *)
               return ("true")
       with exn -> 
-      let _ = eprintf "[tor] enable error: %s\n%!" 
+      let _ = eprintf "[tor] disable error: %s\n%!" 
                 (Printexc.to_string exn) in 
       raise (SocksError (sprintf "enable error: %s" (Printexc.to_string exn)))
  
