@@ -62,12 +62,8 @@ let init_tor_ctl ip port =
     let input = of_fd ~mode:(input) fd in
   
     let ret = {fd;input;} in 
-(*    lwt _ = send_command ret "AUTHENTICATE" in 
-    lwt data = send_command ret "SETCONF HiddenServiceDir=/root/signpostd//tmp/tor/ HiddenServicePort=22 HiddenServicePort=11000" in
-    let _ = print_data data in 
-    lwt data = send_command ret "GETCONF HiddenServiceOption" in   
-    let _ = print_data data in *)
-      return ret
+    lwt _ = send_command ret "AUTHENTICATE" in 
+     return ret
   with exn ->
     let _ = eprintf "[tor] error %s\n%!" (Printexc.to_string exn) in
       failwith "error"
