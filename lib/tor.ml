@@ -580,8 +580,34 @@ module Manager = struct
   (************************************************************************
    *         Tearing down connection code
    ************************************************************************)
-  let teardown _ _ =
-    return "true"
+  let teardown kind _ =
+    try_lwt 
+      match kind with
+      | "teardown" -> begin
+          lwt _ = 
+            match conn_db.tor_ctrl with
+              | Some ctl -> 
+                  lwt _ = Tor_ctl.close_tor_ctl ctl in  
+                  let _ = conn_db.tor_ctrl <- None in 
+                   return ()
+              | None -> return () 
+          in
+          lwt _ = 
+            match conn_db.process with
+            | Some pid ->
+                let _ = pid#terminate in 
+                let _ = conn_db.process <- None in 
+                  return ()
+            | None -> return ()
+          in
+            return "true"
+      end
+      | _ -> 
+          let _ = eprintf "[tor] Invalid teardown action %s\n%!" kind in
+            raise (SocksError (sprintf "invalid teardown action %s" kind))
+    with exn -> 
+      let _ = eprintf "[tor] teardown error %s\n%!" (Printexc.to_string exn) in 
+        raise (SocksError (Printexc.to_string exn))
 
 
 end

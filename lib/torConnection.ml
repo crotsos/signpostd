@@ -112,15 +112,17 @@ let disable a b =
     let _ = eprintf "[tor] connect error:%s\n%!" (Printexc.to_string exn) in
       return false
 
-let teardown _ _ = 
-(*    lwt res = 
-      Lwt_list.map_p 
+let teardown a b = 
+  lwt res = 
+    Lwt_list.map_p 
         (fun a -> 
-           Nodes.send_blocking a
+          Nodes.send_blocking a
              (create_tactic_request "tor"
                 TEARDOWN "teardown" [])) [a;b] in 
-      return (List.fold_right (fun a r -> r && (bool_of_string a)) res true)*)
-  return true
+      return 
+      (List.fold_right 
+      (fun a r -> r && (bool_of_string a)) 
+      res true)
 
 (* ******************************************
  * A tactic to forward all traffic to the tor proxy
