@@ -80,7 +80,7 @@ module Manager = struct
         raise (OpenVpnError("Couldn't be a udp server"))
     in
     (* save socket fd so that we can terminate it *)
-    conn_db.fd <- Some(sock);
+    let _ = conn_db.fd <- Some(sock) in 
 
     (* start background echo udp server to test connectivity*)
     conn_db.can <- Some(while_lwt true do
@@ -95,8 +95,7 @@ module Manager = struct
  * *)
   let run_client src_port port ips =
     let buf = String.create 1500 in
-    let sock = Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM
-              (Unix.getprotobyname "udp").Unix.p_proto in   
+    let sock = socket PF_INET SOCK_DGRAM 0 in   
     let send_pkt_to port ip =
       let ipaddr = (Unix.gethostbyname ip).Unix.h_addr_list.(0) in
       let portaddr = Unix.ADDR_INET (ipaddr, port) in
@@ -120,7 +119,7 @@ module Manager = struct
          (lwt (len, _) = Lwt_unix.recvfrom sock buf 0 1500 [] in
          ret := Some(String.sub buf 0 len);
          return ()) in
-       lwt _ = (Lwt_unix.sleep 1.0) <?> recv in 
+       lwt _ = (Lwt_unix.sleep 4.0) <?> recv in 
        lwt _ = Lwt_unix.close sock in
          match (!ret) with
            | None -> raise (OpenVpnError("Unreachable server"))
@@ -134,13 +133,34 @@ module Manager = struct
     match kind with
       (* start udp server *)
       | "server_start" -> (
-          let src_port, port = 
+          let src_port, port, dst_port = 
             match args with 
-            | src_port::port::_  -> 
-                (int_of_string src_port, int_of_string port)
+            | src_port::port::dst_port::_  -> 
+                (int_of_string src_port, int_of_string port, 
+                 int_of_string dst_port)
             | _ -> failwith "Insufficient args"
-            in 
+          in 
           let _ = run_server src_port port in
+          let actions = [
+            OP.(Flow.Set_tp_dst(port));
+            OP.(Flow.Output(OP.Port.Local , 2000)) ] in 
+          lwt _ = 
+            Sp_controller.setup_flow ~dl_type:(Some(0x0800)) 
+              ~nw_proto:(Some(char_of_int 17))
+              ~tp_dst:(Some(dst_port)) ~tp_src:(Some(src_port)) 
+              ~priority:tactic_priority ~idle_timeout:0 
+              ~hard_timeout:60 actions in    
+          let actions = [
+            OP.(Flow.Set_tp_src(dst_port));
+            OP.(Flow.Output(OP.Port.Flood, 2000)) ] in 
+          lwt _ = 
+            Sp_controller.setup_flow ~dl_type:(Some(0x0800)) 
+              ~nw_proto:(Some(char_of_int 17))
+              ~tp_dst:(Some(src_port)) ~tp_src:(Some(port)) 
+              ~priority:tactic_priority ~idle_timeout:0 
+              ~hard_timeout:60 actions in    
+  
+
             return ("OK"))
       (* code to stop the udp echo server*)
       | "server_stop" -> begin

@@ -124,7 +124,8 @@ let test a b =
       let rpc = (create_tactic_request "openvpn" 
         TEST "server_start" [
           (string_of_int (openvpn_port+2));
-          (string_of_int (openvpn_port+1))]) in
+          (string_of_int (openvpn_port+1)); 
+          (string_of_int openvpn_port) ]) in
       lwt _ = (Nodes.send_blocking a rpc) in 
   
       let not_ips =  Nodes.get_node_local_ips b in
@@ -141,7 +142,7 @@ let test a b =
       let rpc = (create_tactic_request "openvpn" 
         TEST "server_stop" [
           (string_of_int (openvpn_port+2));
-          (string_of_int (openvpn_port+1))]) in
+          (string_of_int (openvpn_port))]) in
       lwt _ = (Nodes.send_blocking a rpc) in 
         dir := direction;
         succ := true;
