@@ -1,7 +1,67 @@
 Requirements :Linux (debian - ubuntu)
 =====================================
 
-apt-get install git ocaml ocaml-compiler-libs caml4p-extra
+compilation requirements:
+
+> apt-get install git ocaml ocaml-compiler-libs caml4p-extra zlib1g-dev libssl-dev libnl-route-3-dev
+
+tactics requirements:
+
+> apt-get install tor openvpn privoxy 
+
+openflow:
+> apt-get install openvswitch-switch opemvswitch-datapath-dkms
+
+> update-rc.d tor disable
+
+> update-rc.d privoxy disable
+
+> /etc/init.d/tor stop
+
+> /etc/init.d/privoxy stop
+
+Openvswitch configuration
+-------------------------
+
+Configuring openvswitch on a remote server is triky as it may lead to loss of connectivity. In order to avoid any problem,
+I usually bypass the default openvswitch init script and write a small script to do the trick. The script I use is the 
+following:
+
+>#!/usr/bin/env bash 
+
+# run with:
+# screen -S ovs sudo sh init.sh
+ 
+intf=eth0 # whichever the nme of the intf is.
+
+modprobe -r bridge
+modprobe openvswitch_mod
+
+if [ ! -d /etc/signpost/ ]; then
+  mkdir /etc/signpost/
+fi
+
+if [ ! -r /etc/signpost/conf.db ]; then
+  ovsdb-tool create /etc/signpost/conf.db  /usr/share/openvswitch/vswitch.ovsschema
+fi
+
+ovsdb-server /etc/signpost/conf.db  --remote=punix:/var/run/openvswitch/db.sock --detach --monitor
+ovs-vswitchd  unix:/var/run/openvswitch/db.sock --detach --monitor
+
+ovs-vsctl add-br br0
+ovs-vsctl add-port $intf 
+ovs-vsctl set-controller br0 tcp:0.0.0.0:6633
+ovs-vsctl set-fail-mode br0 standalone
+
+ifconfig $intf 0.0.0.0
+ifconfig br0 up 
+dclient br0 -v &
+
+echo "pls press Ctrl+C in order to stop the vm from rebooting...."
+sleep 60 
+
+shutdown -r now
+>
 
 Requirements: MacOSX 
 ====================
@@ -25,8 +85,13 @@ Opam code installation and signpostd dependency
 
 > opam remote -kind git -add signpostd git://github.com/crotsos/opam-repo-dev.git
 
-> opam install ssl oasis signpostd # this is to get the required libraries. 
+> opam install ocamlgraph ssl oasis signpostd # this is to get the required libraries. 
 
 Building signpost Code
 ======================
+
+
+
+Configure signpost Code
+=======================
 
