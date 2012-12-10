@@ -181,8 +181,7 @@ module Manager = struct
          (Lwt_bytes.create 4096))
 
   let ssl_complete_flow controller dpid conn m dst_port = 
-(*    let (_, gw, _) = Net_cache.Routing.get_next_hop conn.dst_ip in *)
- (* Setup the appropriate flows in the openflow flow table *)
+(* Setup the appropriate flows in the openflow flow table *)
     let actions = [
       OP.Flow.Set_dl_src(conn.dst_mac);
       OP.Flow.Set_dl_dst(conn.src_mac);
@@ -191,7 +190,7 @@ module Manager = struct
       OP.Flow.Set_tp_src(conn.dst_port);
       OP.Flow.Output((OP.Port.In_port), 2000);] in
     let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
-                ~buffer_id:(-1) actions () in 
+                ~buffer_id:(-1) ~idle_timeout:600 actions () in 
     let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
       (Lwt_bytes.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in 
@@ -211,7 +210,7 @@ module Manager = struct
       OP.Flow.Set_tp_dst(tor_port);
       OP.Flow.Output((OP.Port.In_port), 2000);] in
     let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
-              ~buffer_id:(-1) actions () in 
+              ~buffer_id:(-1) ~idle_timeout:600 actions () in 
     let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
               (Lwt_bytes.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in 
@@ -269,9 +268,6 @@ module Manager = struct
       return ()
 
   let init_tcp_connection controller dpid m src_port dst_port data =
-(*    let (_, gw, _) = 
-      Net_cache.Routing.get_next_hop
-        m.OP.Match.nw_dst in *)
     let name = Hashtbl.find conn_db.hosts m.OP.Match.nw_dst in 
     let _ = 
       printf "[socks] non-socks coonection on port %d\n%!" 
@@ -357,6 +353,7 @@ module Manager = struct
                     in
                     let pkt = 
                       OP.Flow_mod.create m 0_L OP.Flow_mod.ADD 
+                        ~idle_timeout:600
                         ~buffer_id:(Int32.to_int buffer_id)
                         [OP.Flow.Output(port_id, 2000);]  () in 
                       OC.send_of_data controller dpid
