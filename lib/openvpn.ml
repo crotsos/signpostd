@@ -143,7 +143,7 @@ module Manager = struct
           let _ = run_server src_port port in
           let actions = [
             OP.(Flow.Set_tp_dst(port));
-            OP.(Flow.Output(OP.Port.Local , 2000)) ] in 
+            OP.(Flow.Output(OP.Port.Flood , 2000)) ] in 
           lwt _ = 
             Sp_controller.setup_flow ~dl_type:(Some(0x0800)) 
               ~nw_proto:(Some(char_of_int 17))
