@@ -3,7 +3,7 @@ Requirements :Linux (debian - ubuntu)
 
 compilation requirements:
 
-> apt-get install git ocaml ocaml-compiler-libs caml4p-extra zlib1g-dev libssl-dev libnl-route-3-dev
+> apt-get install git ocaml ocaml-compiler-libs caml4p-extra zlib1g-dev libssl-dev libnl-route-3-dev m4
 
 tactics requirements:
 
@@ -77,9 +77,9 @@ Opam code installation and signpostd dependency
 
 > make ; make install
 
-> eval `opam config -env`
-
 > opam init 
+
+> eval `opam config -env`
 
 > opam switch 3.12.1
 
