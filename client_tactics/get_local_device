@@ -1,3 +1,9 @@
 #!/usr/bin/env bash
 
-ifconfig -a $1 | grep HWaddr | awk '{split($3,a,":"); print $1,$5,a[2];}'
+case `uname` in
+  Darwin )
+    echo $1 `ifconfig $1 | grep ether | cut -f 2 -d " "` Ethernet
+    ;;
+  Linux )
+    ifconfig -a $1 | grep HWaddr | awk '{split($3,a,":"); print $1,$5,a[2];}';;
+  esac

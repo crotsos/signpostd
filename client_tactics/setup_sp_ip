@@ -1,0 +1,14 @@
+#!/usr/bin/env bash 
+
+case `uname` in
+  Darwin )
+    ifconfig $1 alias $2 netmask 255.255.255.252
+    arp -s $3 fe:ff:ff:ff:ff:ff
+    route add $2/30 $3
+    ;;
+  Linux )
+    ip addr add $ip/30 dev $1
+    arp -s $3 fe:ff:ff:ff:ff:ff
+    route add -net $ip/16 gw $3
+    ;;
+  esac

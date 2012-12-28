@@ -1,20 +1,17 @@
 /*
- * =====================================================================================
+ * Copyright (c) 2012 Anil Madhavapeddy <anil@recoil.org>
  *
- *       Filename:  tap_routing.c
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- *    Description:  A c interface to the os network layer in order to fetch information 
- *    from the network stack
- *
- *        Version:  1.0
- *        Created:  01/10/2012 15:44:31
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  Charalampos Rotsos (cr409@cl.cam.ac.uk), 
- *   Organization:  University of Cambridge
- *
- * =====================================================================================
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
 #include <unistd.h>
@@ -429,16 +426,16 @@ ocaml_get_local_ip(value unit) {
     ip_in = (struct sockaddr_in *)p-> ifa_addr; 
     for (i = 0; i<intf_count; i++) {
       if(strcmp(name_cache[i][1], p->ifa_name) != 0) continue;
-
-      /*printf("found ip %x\n", ip_in->sin_addr.s_addr);*/
+      uint32_t ip = ntohl(ip_in->sin_addr.s_addr);
       tmp =  caml_alloc(2, 0);
-      entry = caml_alloc(3, 0); 
+      entry = caml_alloc(4, 0); 
       Store_field(entry, 0, caml_copy_string(name_cache[i][1]));
       mac = caml_alloc_string(6); 
       memcpy( String_val(mac), name_cache[i][0], 6);
       Store_field(entry, 1, mac);
-      Store_field(entry, 2, Val_int(ntohl(ip_in->sin_addr.s_addr)));
-      Store_field( tmp, 0, entry);  // head
+      Store_field(entry, 2, Val_int(0xFFFF & ip));
+      Store_field(entry, 3, Val_int(ip>>16));
+       Store_field( tmp, 0, entry);  // head
       Store_field( tmp, 1, ret);  // tail
       ret = tmp;
     }
@@ -465,6 +462,8 @@ ocaml_get_arp_table(value unit) {
   struct rt_msghdr *rtm;
   struct sockaddr_inarp *sin;
   struct sockaddr_dl *sdl;
+
+  printf("loading arp table\n");
 
   // Init return list
   ret = Val_emptylist;
@@ -493,7 +492,7 @@ ocaml_get_arp_table(value unit) {
     entry = caml_alloc(2,0);
     // Store_field(entry, 0, Val_int(ntohl(dstin->sin_addr.s_addr)));
     Store_field(entry, 1, Val_int(ntohl(sin->sin_addr.s_addr)));
-    /*printf("mac: %s, ip %x\n", ether_ntoa(LLADDR(sdl)), sin->sin_addr.s_addr);*/
+    printf("mac: %s, ip %x\n", ether_ntoa(LLADDR(sdl)), ntohl(sin->sin_addr.s_addr));
 
     // store in list
     tmp =  caml_alloc(2, 0);

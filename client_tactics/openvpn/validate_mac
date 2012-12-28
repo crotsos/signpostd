@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+echo learning $1 $2 $3 | tee /tmp/test.txt
+exit 0

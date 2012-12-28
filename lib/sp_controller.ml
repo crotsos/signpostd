@@ -44,6 +44,15 @@ let resolve t = Lwt.on_success t (fun _ -> ())
 let pp = Printf.printf
 let sp = Printf.sprintf
 
+let is_none = function
+  | None -> true
+  | _ -> false
+
+let option_default value default =
+  match value with
+    | None -> default
+    |Some(v) -> v
+
 let switch_data = { 
   mac_cache = Hashtbl.create 0;
   dpid = 0L; of_ctrl =None;
@@ -120,7 +129,7 @@ let preinstall_flows controller dpid port_id =
 
   return ()
 
-let preinstall_flows_eth0 controller dpid port_id = 
+(*   let preinstall_flows_eth0 controller dpid port_id = 
   let port = OP.Port.int_of_port port_id in 
   (* A few rules to reduce load on the control channel *)
   let flow_wild = OP.Wildcards.({
@@ -221,69 +230,7 @@ let preinstall_flows_eth0 controller dpid port_id =
     let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
                (Lwt_bytes.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in
-      return ()
-
-let datapath_join_cb controller dpid evt =
-  let (ports, dp) = 
-    match evt with
-      | OE.Datapath_join (c, ports) -> (ports, c)
-      | _ -> invalid_arg "bogus datapath_join event match!" 
-  in
-    Printf.printf "[openflow] received %d ports\n%!" (List.length ports);
-      (* I have the assumption that my initial setup contains only
-      * local interfaces and not signpost *)
-    List.iter ( 
-      fun port -> 
-        let _ = Net_cache.Port_cache.add_dev 
-          port.OP.Port.name port.OP.Port.port_no in
-          match port.OP.Port.port_no with
-            | 0xfffe -> ()
-            | _ ->
-                Lwt.ignore_result (
-                   preinstall_flows controller dpid 
-                   (OP.Port.port_of_int port.OP.Port.port_no))
-    ) ports;
-    List.iter ( 
-      fun port -> 
-        let port_name = String.sub port.OP.Port.name 0 4 in 
-          match port_name with
-            | "eth0" ->
-                printf "Port eth0 found \n";
-                Lwt.ignore_result (preinstall_flows_eth0 controller
-                dpid (OP.Port.port_of_int port.OP.Port.port_no))
-            | "eth1" -> 
-                printf "Port eth1 found \n";
-                Lwt.ignore_result (preinstall_flows_eth1 controller
-                dpid (OP.Port.port_of_int port.OP.Port.port_no))
-            | _ -> ()
-    ) ports;(*   lwt _ = preinstall_flows controller dpid OP.Port.Local ([]) in  *)
-  switch_data.dpid <- dp;
-  return (pp "+ datapath:0x%012Lx\n%!" dp)
-
-let is_none = function
-  | None -> true
-  | _ -> false
-
-let option_default value default =
-  match value with
-    | None -> default
-    |Some(v) -> v
-
-
-let send_packet ?(in_port=OP.Port.No_port) ?(buffer_id=(-1l)) 
-      data actions = 
-    let controller = 
-      match switch_data.of_ctrl with
-        | None -> failwith "controller not connected"
-        |Some (of_ctrl) -> of_ctrl
-    in
-    let pkt = 
-          OP.Packet_out.create ~buffer_id ~actions
-            ~data ~in_port () in
-    let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out pkt) 
-               (Lwt_bytes.create 4096)  in 
-      OC.send_of_data controller switch_data.dpid  bs
-
+      return () *)
 
 let delete_flow ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) ?(dl_dst=None)
       ?(dl_type=None) ?(nw_proto=None) ?(tp_dst=None) ?(tp_src=None)
@@ -359,6 +306,89 @@ let setup_flow ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) ?(dl_dst=None)
             (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
                (Lwt_bytes.create 4096)) in 
     return()
+
+
+let preinstall_flows_net_intf controller dpid port_id = 
+  lwt _ = setup_flow ~in_port:(Some port_id) ~priority:1 ~hard_timeout:0
+            ~idle_timeout:0 [OP.Flow.Output(OP.Port.Local, 2000)] in 
+  lwt _ = setup_flow ~in_port:(Some (OP.Port.int_of_port OP.Port.Local) )
+            ~priority:1 ~hard_timeout:0 ~idle_timeout:0 
+            [OP.Flow.Output((OP.Port.port_of_int port_id), 2000)] in  
+    return ()
+
+let trim str =   
+  if str = "" then 
+    "" 
+  else   
+    let search_pos init p next =
+      let rec search i =
+        if p i then 
+          raise(Failure "empty") 
+        else
+          match str.[i] with
+          | ' ' | '\n' | '\r' | '\t' | '\000' -> search (next i)
+          | _ -> i
+      in
+        search init   
+    in   
+    let len = String.length str in   
+      try
+        let left = search_pos 0 (fun i -> i >= len) (succ)
+        and right = search_pos (len - 1) (fun i -> i < 0) (pred) in
+          String.sub str left (right - left + 1)   
+      with   
+      | Failure "empty" -> "" 
+
+
+let datapath_join_cb controller dpid evt =
+  let (ports, dp) = 
+    match evt with
+      | OE.Datapath_join (c, ports) -> (ports, c)
+      | _ -> invalid_arg "bogus datapath_join event match!" 
+  in
+    Printf.printf "[openflow] received %d ports\n%!" (List.length ports);
+      (* I have the assumption that my initial setup contains only
+      * local interfaces and not signpost *)
+  let _ = switch_data.dpid <- dp in 
+  lwt _ = Lwt_list.iter_p ( 
+      fun port -> 
+        let _ = Net_cache.Port_cache.add_dev 
+          port.OP.Port.name port.OP.Port.port_no in
+          match port.OP.Port.port_no with
+            | 0xfffe -> return ()
+            | _ ->
+                   preinstall_flows controller dpid 
+                   (OP.Port.port_of_int port.OP.Port.port_no)
+    ) ports in
+    lwt _ = Lwt_list.iter_p ( 
+      fun port -> 
+        let port_name = trim port.OP.Port.name in (* String.sub port.OP.Port.name 0 4
+        in *)
+        let _ = printf "checking port %s(%d)\n%!" port_name (String.length
+        port_name) in 
+          match port_name with
+            | dev when dev = Config.net_intf ->
+                let _ = printf "Port net_intf %s found \n%!" dev in
+                  preinstall_flows_net_intf controller
+                    dpid port.OP.Port.port_no
+           | _ -> return ()
+    ) ports in 
+    return (pp "+ datapath:0x%012Lx\n%!" dp)
+
+let send_packet ?(in_port=OP.Port.No_port) ?(buffer_id=(-1l)) 
+      data actions = 
+    let controller = 
+      match switch_data.of_ctrl with
+        | None -> failwith "controller not connected"
+        |Some (of_ctrl) -> of_ctrl
+    in
+    let pkt = 
+          OP.Packet_out.create ~buffer_id ~actions
+            ~data ~in_port () in
+    let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out pkt) 
+               (Lwt_bytes.create 4096)  in 
+      OC.send_of_data controller switch_data.dpid  bs
+
 
 let register_handler_new  ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) 
       ?(dl_dst=None)
@@ -562,6 +592,7 @@ let lookup_flow of_match =
 
 let packet_in_cb controller dpid evt =
   incr req_count;
+  try_lwt
   let (in_port, buffer_id, data, _) = 
     match evt with
       | OE.Packet_in (inp, buf, dat, dp) -> (inp, buf, dat, dp)
@@ -572,6 +603,9 @@ let packet_in_cb controller dpid evt =
     match (lookup_flow m) with
       | Some (cb) -> cb controller dpid evt
       | None -> switch_packet_in_cb controller dpid  buffer_id m data in_port
+  with exn -> 
+    let _ = eprintf "checking erro %s\n%!" (Printexc.to_string exn) in 
+      return ()
 
 let init controller = 
   let _ = switch_data.of_ctrl <- Some(controller) in 
@@ -580,14 +614,23 @@ let init controller =
     OC.register_cb controller OE.PORT_STATUS_CHANGE port_status_cb
 
 let add_dev dev ip netmask =
-  lwt _ = Lwt_unix.system ("ovs-vsctl add-port br0 " ^ dev) in 
-  lwt _ = Lwt_unix.system (sp "ip addr add %s/%s dev br0" ip netmask) in
+  lwt _ = Lwt_unix.system (sprintf "ovs-vsctl add-port %s %s" 
+                            Config.bridge_intf dev) in
+  lwt _ = Lwt_unix.system (sprintf "ifconfig %s up" dev) in
+   lwt _ = 
+    Lwt_unix.system 
+      (sp "%s/client_tactics/add_bridge_ip %s %s %s" 
+        Config.dir Config.bridge_intf ip netmask) in
   return ()
 
 let del_dev dev ip netmask =
-  lwt _ = Lwt_unix.system ("ovs-vsctl del-port br0 " ^ dev) in 
-  lwt _ = Lwt_unix.system (sp "ip addr del %s/%s dev br0" ip netmask) in
-  return ()
+  lwt _ = Lwt_unix.system (sp "ovs-vsctl del-port %s %s" 
+                            Config.bridge_intf dev) in 
+  lwt _ = 
+    Lwt_unix.system 
+      (sp "%s/client_tactics/del_bridge_ip %s %s %s" 
+        Config.dir Config.bridge_intf ip netmask) in
+    return ()
 
 let listen ?(port = 6633) mgr =
   let _ = pp "[openflow] Starting switch...\n%!" in 

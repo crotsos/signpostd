@@ -170,6 +170,7 @@ let thread_client ~address ~port init =
       raise_lwt (Failure ("cannot resolve " ^ address))
   in
   lwt _ = Lwt_unix.connect fd src in
+  let _ = printf "client connected\n%!" in 
   let _ = Nodes.set_server_signalling_channel fd in
     (init ()) <&> (process_channel fd src )
 end

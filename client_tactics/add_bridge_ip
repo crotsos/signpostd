@@ -1,0 +1,14 @@
+#!/usr/bin/env bash 
+
+intf=$1
+ip=$2
+netmask=$3
+
+case `uname` in
+  Darwin )
+    ifconfig $intf alias $ip netmask $netmask
+    ;;
+  Linux )
+    ip addr add $ip/$netmask dev $intf
+    ;;
+  esac

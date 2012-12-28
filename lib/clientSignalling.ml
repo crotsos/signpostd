@@ -80,14 +80,17 @@ let handle_notification _ command arg_list =
         (* TODO make this libnl *)
       let gw_ip = ipv4_to_string 
                     (Int32.add (string_to_ipv4 ip) 1l) in 
+      lwt _ = Lwt_unix.system (
+        sprintf "%s/client_tactics/setup_sp_ip %s %s %s "
+        Config.dir Config.bridge_intf ip gw_ip) in 
+(*                (Printf.sprintf "ip addr add %s/30 dev br0"  ip) in       
+                  (sprintf "ifconfig %s alias %s ") in
       lwt _ = Lwt_unix.system 
-                (Printf.sprintf "ip addr add %s/30 dev br0"  ip) in         
-      lwt _ = Lwt_unix.system 
-                (Printf.sprintf "arp -H ether -s %s fe:ff:ff:ff:ff:ff"  
+                (Printf.sprintf "arp -s %s fe:ff:ff:ff:ff:ff"  
                    gw_ip) in         
       lwt _ = Lwt_unix.system 
                 (Printf.sprintf "route add -net %s/%d gw %s" 
-                   Nodes.sp_ip_network Nodes.sp_ip_netmask gw_ip) in
+                   Nodes.sp_ip_network Nodes.sp_ip_netmask gw_ip) in  *)
         return ()  
   | Command c -> 
       let _ = eprintf "NOTIFICATION: %s with args %s\n%!" 

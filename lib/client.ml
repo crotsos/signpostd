@@ -111,42 +111,44 @@ let dnsfn resolv st sig0 ~src ~dst packet =
 
 let dns_t () =
   try_lwt
-  (* setup default resovler for the rest *)
-  lwt resolv = Dns_resolver.create () in
-  (* setup resolver for the signpost *)
-  let config = `Static([Config.external_ip,Config.dns_port], []) in
-  lwt t = Dns_resolver.create ~config () in 
-  lwt st = Sec.init_dnssec ~resolver:(Some(t)) () in
+    (* setup default resovler for the rest *)
+    let config = `Static([Config.ns_server, 53], []) in
+    lwt resolv = Dns_resolver.create ~config () in
+    (* setup resolver for the signpost *)
+    let config = `Static([Config.external_ip,Config.dns_port], []) in
+    lwt t = Dns_resolver.create ~config () in 
+    lwt st = Sec.init_dnssec ~resolver:(Some(t)) () in
 
-  let key  = 
-    Dnssec_rsa.new_rsa_key_from_param 
-      (Key.load_rsa_priv_key 
-         (Config.conf_dir ^ "/signpost.pem")) in
-  lwt sign_dnskey = 
-    match_lwt (Key.dnskey_rdata_of_pem_priv_file
-            (Config.conf_dir ^ "/signpost.pem")
-            0 Dns.Packet.RSASHA1) with
-      | Some sign_dnskey -> return sign_dnskey
-      | None -> failwith (sprintf "failed to read key %s" 
+    let key  = 
+      Dnssec_rsa.new_rsa_key_from_param 
+        (Key.load_rsa_priv_key 
+           (Config.conf_dir ^ "/signpost.pem")) in
+    lwt sign_dnskey = 
+      match_lwt (Key.dnskey_rdata_of_pem_priv_file
+              (Config.conf_dir ^ "/signpost.pem")
+              0 Dns.Packet.RSASHA1) with
+        | Some sign_dnskey -> return sign_dnskey
+        | None -> failwith (sprintf "failed to read key %s" 
                             (Config.conf_dir ^ "/signpost.pem"))
-  in 
-(*  let _ = Sec.add_anchor st sign_dnskey in *)
-  let sign_tag = Sec.get_dnskey_tag sign_dnskey in
-  let sig0 = (Dns.Packet.RSASHA1, sign_tag, (Sec.Rsa key), 
-              ([!node_name] @ dns_domain)) in
-  lwt p = Dns_resolver.resolve t Q_IN Q_DNSKEY 
-            dns_domain in
-  let rec add_root_dnskey = function
-    | [] -> ()
-    | hd :: tl when (rdata_to_rr_type hd.rdata) = RR_DNSKEY -> 
-        let _ = Sec.add_anchor st hd in
-          add_root_dnskey tl 
-    | _ :: tl -> add_root_dnskey tl
-  in 
-  let _ = add_root_dnskey p.answers in 
-  (* local nameserver *)
-  lwt fd, src = Dns_server.bind_fd ~address:"0.0.0.0" ~port:53 in
-    Dns_server.listen ~fd ~src ~dnsfn:(dnsfn resolv st sig0)
+    in 
+  (*  let _ = Sec.add_anchor st sign_dnskey in *)
+    let sign_tag = Sec.get_dnskey_tag sign_dnskey in
+    let sig0 = (Dns.Packet.RSASHA1, sign_tag, (Sec.Rsa key), 
+                ([!node_name] @ dns_domain)) in
+    lwt p = Dns_resolver.resolve t Q_IN Q_DNSKEY 
+              dns_domain in
+    let rec add_root_dnskey = function
+      | [] -> ()
+      | hd :: tl when (rdata_to_rr_type hd.rdata) = RR_DNSKEY -> 
+          let _ = Sec.add_anchor st hd in
+            add_root_dnskey tl 
+      | _ :: tl -> add_root_dnskey tl
+    in 
+    let _ = add_root_dnskey p.answers in
+    let _ = printf "starting dns server...\n%!" in 
+    (* local nameserver *)
+    lwt fd, src = Dns_server.bind_fd ~address:"0.0.0.0" ~port:53 in
+      Dns_server.listen ~fd ~src ~dnsfn:(dnsfn resolv st sig0)
   with ex ->
     return (eprintf "[dns] error: %s\n%!" (Printexc.to_string ex))
 
@@ -154,8 +156,9 @@ let get_hello_rpc ips =
   let string_port = (string_of_int !node_port) in
   let ips = List.map Uri_IP.ipv4_to_string ips in 
   let ip_stream = (Unix.open_process_in
-                     (Config.dir ^ 
-                      "/client_tactics/get_local_device br0")) in
+                     (sprintf 
+                      "%s/client_tactics/get_local_device %s" 
+                      Config.dir Config.bridge_intf)) in
   let test = Re_str.split (Re_str.regexp " ") 
               (input_line ip_stream) in 
   let mac = List.nth test 1 in
@@ -163,7 +166,7 @@ let get_hello_rpc ips =
     create_notification "hello" args
 
 let update_server_if_state_has_changed () =
-  let ips = Nodes.discover_local_ips ~dev:"br0" () in
+  let ips = Nodes.discover_local_ips ~dev:Config.bridge_intf () in
   match (ips <> !local_ips) with
   | true -> begin
       let _ = local_ips := ips in 
@@ -195,6 +198,7 @@ lwt _ =
   Nodes.set_local_name !node_name;
   (try node_ip := Sys.argv.(2) with _ -> usage ());
   (try node_port := (int_of_string Sys.argv.(3)) with _ -> usage ());
+  try_lwt
     Net.Manager.create (
       fun mgr _ _ -> 
         join [ 
@@ -204,3 +208,5 @@ lwt _ =
          Sp_controller.listen mgr; 
         ]
     )
+    with exn -> 
+      return (printf "[client] error: %s\n%!" (Printexc.to_string exn))

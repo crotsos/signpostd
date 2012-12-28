@@ -223,7 +223,8 @@ module Manager = struct
     (* get local mac address *)
     let ip_stream = 
       (Unix.open_process_in
-         (Config.dir^"/client_tactics/get_local_device br0")) in
+         (Config.dir^"/client_tactics/get_local_device " ^ 
+         Config.bridge_intf )) in
     let ips = Re_str.split (Re_str.regexp " ") 
                 (input_line ip_stream) in 
     let mac = Net_cache.mac_of_string (List.nth ips 1) in
@@ -288,9 +289,11 @@ module Manager = struct
         
   let read_pid_from_file filename = 
     let fd = open_in filename in
-    let pid = int_of_string (input_line fd) in 
-      close_in fd;
-      printf "[openvpn] process (pid %d) ...\n%!" pid;
+    let pid = input_line fd in 
+    let _ = printf "[openvpn] pid %s\n%!" pid in 
+    let pid = int_of_string pid in 
+    let _ = close_in fd in 
+    let _ = printf "[openvpn] process (pid %d) ...\n%!" pid in 
       pid
 
   (* This method will check if a server listening for a specific 
@@ -315,12 +318,12 @@ module Manager = struct
          * and start server *)
         let _ = printf "[openvpn] start serv add device %s\n%!" node in
         let dev_id = Tap.get_new_dev_ip () in 
-        lwt _ = Tap.setup_dev dev_id (Uri_IP.ipv4_to_string ip) in
         lwt dev_id = start_openvpn_daemon 0l port
                        node domain "server" dev_id in 
         lwt _ = Lwt_unix.sleep 1.0 in 
         let pid = read_pid_from_file (Config.tmp_dir ^ "/" ^ 
                                       domain ^"/server.pid") in 
+        lwt _ = Tap.setup_dev dev_id (Uri_IP.ipv4_to_string ip) in
         let _ = Hashtbl.add conn_db.conns (domain) 
             {ip;port;pid;dev_id;nodes=[node ^ "." ^ Config.domain];
             conn_id;rem_node;} in 
@@ -361,7 +364,8 @@ module Manager = struct
   let send_gratuitous_arp nw_src = 
     let ip_stream = (Unix.open_process_in
                        (Config.dir ^ 
-                        "/client_tactics/get_local_device br0")) in
+                        "/client_tactics/get_local_device " ^
+                        Config.bridge_intf)) in
     let test = Re_str.split (Re_str.regexp " ") 
                  (input_line ip_stream) in 
     let dl_src = Net_cache.mac_of_string (List.nth test 1) in
@@ -400,11 +404,12 @@ module Manager = struct
           | _ -> failwith "Insufficient args"
         in
         let dev_id = Tap.get_new_dev_ip () in
-        lwt _ = Tap.setup_dev dev_id 
-                  (Uri_IP.ipv4_to_string local_ip) in
         lwt _ = start_openvpn_daemon ip port node domain 
                   "client" dev_id in
-        let pid = read_pid_from_file (Config.tmp_dir ^ "/" ^ 
+        lwt _ = Lwt_unix.sleep 0.5 in 
+        lwt _ = Tap.setup_dev dev_id 
+                  (Uri_IP.ipv4_to_string local_ip) in
+         let pid = read_pid_from_file (Config.tmp_dir ^ "/" ^ 
                                       domain ^"/client.pid") in 
         let _ = Hashtbl.add conn_db.conns (domain) 
             {ip;port;pid;dev_id;nodes=[node ^ "." ^ Config.domain];

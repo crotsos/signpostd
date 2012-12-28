@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 95075ea03a867cb3e954d04c4ab52ca1)
+# DO NOT EDIT (digest: b1c18630a8f52817975b9356fcc0084a)
 # Ignore VCS directories, you can use the same kind of rule outside 
 # OASIS_START/STOP if you want to exclude directories that contains 
 # useless stuff for the build process
@@ -49,11 +49,6 @@
 "lib/tor_ctl.cmx": for-pack(Signpost)
 <lib/*.ml{,i}>: oasis_library_signpost_ccopt
 "lib/tap_routing.c": oasis_library_signpost_ccopt
-"lib/signpost.cmxa": oasis_library_signpost_cclib
-"lib/libsignpost_stubs.lib": oasis_library_signpost_cclib
-"lib/dllsignpost_stubs.dll": oasis_library_signpost_cclib
-"lib/libsignpost_stubs.a": oasis_library_signpost_cclib
-"lib/dllsignpost_stubs.so": oasis_library_signpost_cclib
 "lib/signpost.cmxa": use_libsignpost_stubs
 "lib/tap_routing.c": pkg_lwt.syntax
 "lib/tap_routing.c": pkg_lwt

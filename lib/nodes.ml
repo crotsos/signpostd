@@ -1,4 +1,4 @@
-            (*
+(*
  * Copyright (c) 2012 Sebastian Probst Eide <sebastian.probst.eide@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -19,7 +19,7 @@ open Int64
 open Unix
 open Re_str
 open Sp_rpc
-
+open Net.Nettypes
 (* ---------------------------------------------------------------------- *)
 
 exception InconsistentState of string
@@ -267,15 +267,27 @@ let local_ip_filter ip =
 let discover_local_ips ?(dev="") () =
   List.fold_right (
     fun (d, _, ip_l, ip_h) r ->
-
       let ip = Int32.add (Int32.shift_left (Int32.of_int ip_h) 16)
                  (Int32.of_int ip_l) in
-      if ( ((dev = "") || (dev = d)) && 
+     if ( ((dev = "") || (dev = d)) && 
           (not (local_ip_filter ip) )) then
         r @ [ip]
       else 
         r
   ) (nl_get_local_ips ()) []
+
+let discover_bridge_mac ?(dev="") () =
+  List.fold_right (
+    fun (d, _, ip_l, ip_h) r ->
+      let ip = Int32.add (Int32.shift_left (Int32.of_int ip_h) 16)
+                 (Int32.of_int ip_l) in
+     if ( ((dev = "") || (dev = d)) && 
+          (not (local_ip_filter ip) )) then
+        r @ [ip]
+      else 
+        r
+  ) (nl_get_local_ips ()) []
+
 
 let add_node_public_ip name ip is_nattted is_random = 
   try
