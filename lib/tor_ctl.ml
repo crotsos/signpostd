@@ -34,22 +34,34 @@ let print_data (status, lines) =
       Printf.eprintf "%d+%s\n%!" status line 
     ) lines
 
+let is_num value = 
+  try 
+    let _ = int_of_string value in true
+  with exn -> false
+
 let send_command st cmd = 
   let cmd = cmd ^ "\n" in 
   lwt _ = Lwt_unix.send st.fd cmd 0 (String.length cmd) [] in
   
-  let rec read_reply st = 
-    lwt line = read_line st.input in 
-    let data = (String.sub line 4 ((String.length line) - 4)) in 
-    let status = int_of_string (String.sub line 0 3) in 
-    let more = String.sub line 3 1 in 
+  let rec read_reply st status = 
+    lwt line = read_line st.input in
+    let (status, data,more) = 
+      if ( ((String.length line) >= 3) &&
+          (is_num (String.sub line 0 3)) ) then 
+        let status = int_of_string (String.sub line 0 3) in 
+        let data = (String.sub line 4 ((String.length line) - 4)) in
+        let more = String.sub line 3 1 in 
+          (status, data, more)
+        else
+          (status, line, "+")
+      in
       if (more = "+" || more = "-") then 
-        lwt (_, fields) = read_reply st in 
+        lwt (_, fields) = read_reply st status in 
           return (status, ([data]@fields))
       else
-        return (status, [data])
+        return (status, [data]) 
   in
-  lwt ret = read_reply st in 
+  lwt ret = read_reply st 0 in 
   let _ = print_data ret in 
     return ret
 
@@ -76,6 +88,30 @@ let close_tor_ctl st =
     let _ = eprintf "[tor] error %s\n%!" (Printexc.to_string exn) in
       failwith "error"
 
+let is_service_established st = 
+  lwt (status, reply) = send_command st "GETINFO circuit-status" in 
+  let hashtbl_get_value r name = 
+    try Some(Hashtbl.find r name) with Not_found -> None
+  in
+    Lwt_list.fold_right_s (
+      fun circuit res -> 
+        if (res) then return res 
+        else
+          let fields = 
+            List.fold_right ( 
+              fun a r -> 
+                match (Re_str.split (Re_str.regexp "=") a) with
+                | name::value::_ ->
+                    let _ = Hashtbl.add r name value in r
+                | _ -> r
+            ) (Re_str.split (Re_str.regexp " ") circuit) 
+            (Hashtbl.create 16) in
+          let get = hashtbl_get_value fields in 
+          match ((get "PURPOSE"), (get "HS_STATE")) with 
+          | (Some "HS_SERVICE_INTRO", Some "HSSI_ESTABLISHED") -> 
+              return true
+          | _ , _ -> return res
+    ) reply false 
 
 let expose_service st dir ports =
   let cmd = ref (sprintf "SETCONF HiddenServiceDir=%s" dir) in 

@@ -52,7 +52,7 @@ module Manager = struct
     mutable ssl_state : socks_state_type;
     mutable src_isn : int32;
     mutable dst_isn : int32;
-    data: Cstruct.buf;
+    data: Cstruct.t;
   }
 
   type conn_db_type = {
@@ -74,6 +74,71 @@ module Manager = struct
   let tor_port = 9050
   let tor_ctl_port = 9051
 
+  let is_connected_socket flow ip port = 
+    try 
+      let str = Printf.sprintf "%s:%d" (Uri_IP.ipv4_to_string ip) 
+                  port in 
+      let _ = Re_str.search_forward (Re_str.regexp str) flow 0 in 
+        true
+    with Not_found -> false
+
+  let is_listening_socket flow = 
+    try 
+     let _ = Re_str.search_forward (Re_str.regexp "->") flow 0 in 
+        false
+    with Not_found -> true
+
+ let read_servers () =
+    let lsof = ("lsof", [|"lsof"; "-i"; "4TCP"; "-n";"-P";|]) in 
+    let proc = open_process_in lsof in
+    lwt _ = Lwt_io.read_line proc#stdout in 
+    let rec read_flows stream = 
+      try_lwt 
+        lwt line = Lwt_io.read_line stream in 
+        let fields = Re_str.split (Re_str.regexp "[\ \t]+") line in 
+        let flow_pid = int_of_string (List.nth fields 1) in 
+        let flow = List.nth fields 8 in
+        let service =
+          try 
+          if (is_listening_socket flow) then
+            match (Re_str.split (Re_str.regexp ":") flow) with
+            | ip::port::_ -> [(int_of_string port)]
+            | _ -> []
+          else
+            []
+          with exn -> []
+        in
+        lwt rest = read_flows stream in 
+          return (service @ rest)
+      with End_of_file -> 
+        return []
+  in
+    read_flows proc#stdout
+
+  let monitor_socket st t = 
+    nchoose 
+    [ t; 
+    (while_lwt true do 
+      lwt servers = read_servers () in 
+      let new_servers = 
+        List.filter 
+        (fun port ->
+          not (List.mem port conn_db.server_list) ) servers in
+      lwt _ = 
+        if (List.length new_servers > 0) then 
+          let _ = conn_db.server_list <- 
+            conn_db.server_list @ new_servers in 
+            lwt _ = Tor_ctl.expose_service st (tmp_dir ^ "/tor/")
+                      conn_db.server_list in
+              return ()
+        else
+          return () 
+      in 
+      lwt _ = Lwt_unix.sleep 10.0 in 
+        return ()
+    done)]
+
+ 
   let restart_tor () = 
     lwt pid = 
       match (conn_db.process) with
@@ -85,63 +150,42 @@ module Manager = struct
                    dir;|]) in 
             let _ = conn_db.process <- Some (pid) in 
             lwt _ = Lwt_unix.sleep 1.0 in 
+            lwt st = Tor_ctl.init_tor_ctl "127.0.0.1" tor_ctl_port in 
+            let _ = conn_db.tor_ctrl <- Some(st) in  
+            let (t, u) = task () in
+            let _ = conn_db.monitor_wait <- Some(t) in 
+            let _ = conn_db.monitor_return <- Some(u) in 
+            let _ = ignore_result (monitor_socket st t) in  
+            lwt _ = Lwt_unix.sleep 1.0 in 
               return pid
         | Some pid -> return pid
     in
       return pid#pid
 
-  let load_socks_sockets pid = 
-    let fd_dir = (Printf.sprintf "/proc/%d/fd/" pid) in 
-      let files = Sys.readdir fd_dir in 
-      let sock_array = 
-        Array.map 
-          (fun dir -> 
-             let file_path = Printf.sprintf "%s/%s" fd_dir dir in
-             let file_stat = Unix.stat file_path in 
-               match file_stat.Unix.st_kind with
-                 | Unix.S_SOCK -> file_stat.Unix.st_ino
-                 | _ -> 0
-        ) files in 
-        List.filter (fun fd -> (fd <> 0)) (Array.to_list sock_array) 
-          
+  let is_tor_conn ip port = 
+    lwt pid = restart_tor () in
+    let lsof = ("lsof", [|"lsof"; "-i"; "4TCP"; "-n";"-P";|]) in 
+    let proc = open_process_in lsof in
+    lwt _ = Lwt_io.read_line proc#stdout in 
+    let rec read_flows stream = 
+      try_lwt 
+        lwt line = Lwt_io.read_line stream in 
+        let fields = Re_str.split (Re_str.regexp "[\ \t]+") line in 
+        let flow_pid = int_of_string (List.nth fields 1) in 
+        let flow = List.nth fields 8 in 
 
+          if ((pid = flow_pid) && 
+              (is_connected_socket flow ip port) ) then
+            return true
+          else (read_flows stream)
+      with End_of_file -> return false
+  in
+    read_flows proc#stdout
+
+ 
 (*
  *  openflow comtrol methods
  * *)
-  let is_tor_conn ip port = 
-    lwt pid = restart_tor () in
-
-    let socket_ids = load_socks_sockets pid in 
-(*     List.iter (fun fd -> Printf.printf "%d\n%!" fd ) socket_ids; *)
-    let found = ref false in
-    let lookup_string = 
-      sprintf "%s:%04X" 
-        (Net_cache.Routing.string_rev (sprintf "%08lX" ip)) 
-        port in 
-    let tcp_conn = open_in "/proc/net/tcp" in 
-
-      let rec parse_tcp_conn tcp_conn = 
-        try 
-          let conn = input_line tcp_conn in
-          let det = Re_str.split (Re_str.regexp "[ ]+") conn in 
-(*             Printf.printf "Looking sock %d\n%!" (int_of_string (List.nth det
- *             9)); *)
-            if( (List.mem  (int_of_string (List.nth det 9)) socket_ids) &&
-              ((List.nth det 1) = lookup_string) ) then (
-              Printf.printf "%s %s\n%!" (List.nth det 1) lookup_string;
-              found := true
-            ) else (
-              parse_tcp_conn tcp_conn
-            )
-        with End_of_file -> () 
-      in
-      let _ = input_line tcp_conn in 
-        let _ = parse_tcp_conn tcp_conn in  
-          close_in tcp_conn;
-          return (!found)  
-
-
-
   let ssl_send_conect_req controller dpid conn m dst_port = 
 (*    let (_, gw, _) = Net_cache.Routing.get_next_hop conn.dst_ip in *)
  (* SYNACK the client in order to establish the
@@ -161,7 +205,7 @@ module Manager = struct
               (OP.Packet_out.create ~buffer_id:(-1l)
                  ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
                  ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-           (Lwt_bytes.create 4096)) in  
+           (Cstruct.create 4096)) in  
 
   (* Send an http request to setup the persistent connection to the ssl server *)
   let pkt = 
@@ -178,7 +222,7 @@ module Manager = struct
             (OP.Packet_out.create ~buffer_id:(-1l)
                ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
                ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-         (Lwt_bytes.create 4096))
+         (Cstruct.create 4096))
 
   let ssl_complete_flow controller dpid conn m dst_port = 
 (* Setup the appropriate flows in the openflow flow table *)
@@ -192,10 +236,10 @@ module Manager = struct
     let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
                 ~buffer_id:(-1) ~idle_timeout:600 actions () in 
     let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-      (Lwt_bytes.create 4096) in
+      (Cstruct.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in 
 
-    let m = OP.Match.({wildcards=(OP.Wildcards.exact_match);
+    let m = OP.Match.({wildcards=(OP.Wildcards.exact_match ());
                      in_port=OP.Port.Local; dl_src=conn.src_mac;
                      dl_dst=conn.dst_mac; dl_vlan=0xffff;
                      dl_vlan_pcp=(char_of_int 0); dl_type=0x0800;
@@ -212,7 +256,7 @@ module Manager = struct
     let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
               ~buffer_id:(-1) ~idle_timeout:600 actions () in 
     let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
-              (Lwt_bytes.create 4096) in
+              (Cstruct.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in 
 
      
@@ -231,7 +275,7 @@ module Manager = struct
               (OP.Packet_out.create ~buffer_id:(-1l)
                  ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
                  ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-        (Lwt_bytes.create 4096)) in  
+        (Cstruct.create 4096)) in  
 
     let pkt = 
       gen_server_ack 
@@ -247,7 +291,7 @@ module Manager = struct
               (OP.Packet_out.create ~buffer_id:(-1l)
                  ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
                  ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-           (Lwt_bytes.create 4096)) in  
+           (Cstruct.create 4096)) in  
     
     let pkt = 
       gen_server_ack
@@ -264,7 +308,7 @@ module Manager = struct
               (OP.Packet_out.create ~buffer_id:(-1l)
                  ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
                  ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-           (Lwt_bytes.create 4096)) in 
+           (Cstruct.create 4096)) in 
       return ()
 
   let init_tcp_connection controller dpid m src_port dst_port data =
@@ -273,14 +317,14 @@ module Manager = struct
       printf "[socks] non-socks coonection on port %d\n%!" 
         src_port in
     let isn = get_tcp_sn data in
-    let req = Lwt_bytes.create 1024 in 
+    let req = Cstruct.create 1024 in 
     let _ = Cstruct.set_uint8 req 0 4 in 
     let _ = Cstruct.set_uint8 req 1 1 in 
     let _ = Cstruct.BE.set_uint16 req 2 dst_port in 
     let _ = Cstruct.BE.set_uint32 req 4 1l in 
     let _ = Cstruct.set_uint8 req 8 0 in
     let name = name ^ "\000" in
-    let _ = Cstruct.set_buffer name 0 req 9  (String.length name) in 
+    let _ = Cstruct.blit_from_string name 0 req 9  (String.length name) in 
     let req = Cstruct.sub req 0 (9 + (String.length name)) in 
     let mapping = 
       {src_mac=m.OP.Match.dl_src; dst_mac=m.OP.Match.dl_dst; 
@@ -302,10 +346,11 @@ module Manager = struct
               (OP.Packet_out.create ~buffer_id:(-1l)
                  ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
                  ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-           (Lwt_bytes.create 4096))
+           (Cstruct.create 4096))
 
   let handle_tor_incoming_pkt controller dpid m dst_port data = 
     try_lwt 
+      let _ = printf "[tor] received packet in...\n%!" in 
       let conn = Hashtbl.find conn_db.http_conns dst_port in
         match conn.ssl_state with
           | SSL_SERVER_INIT -> 
@@ -359,7 +404,7 @@ module Manager = struct
                       OC.send_of_data controller dpid
                         (OP.marshal_and_sub 
                            (OP.Flow_mod.marshal_flow_mod pkt)
-                           (Lwt_bytes.create 4096))
+                           (Cstruct.create 4096))
                 | (false, true) -> 
                     return (printf "[socks] non-socks established  %d\n%!" src_port)
                 | (_, false) ->
@@ -378,16 +423,22 @@ module Manager = struct
      let ipaddr = Unix.inet_addr_of_string (Uri_IP.ipv4_to_string ip) in
      printf "[tor] trying to connect...\n%!";
      lwt _ = Lwt_unix.connect sock (ADDR_INET(ipaddr, port)) in 
-     printf "[tor] connected...\n%!";
-     let pkt_bitstring = BITSTRING {
-       ip:32:int;port:16; (String.length (Nodes.get_local_name ())):16;
-       (Nodes.get_local_name ()):-1:string} in 
-     let pkt = Bitstring.string_of_bitstring pkt_bitstring in 
+     let _ = printf "[tor] connected...\n%!" in 
+     let buf = Cstruct.create 1024 in 
+     let _ = Cstruct.BE.set_uint32 buf 0  ip in 
+     let _ = Cstruct.BE.set_uint16 buf 4 port in 
+     let name = Nodes.get_local_name () in 
+     let name_len = String.length name in 
+     let _ = Cstruct.BE.set_uint16 buf 6 name_len in
+     let _ = Cstruct.blit_from_string name 0 buf 8 name_len in 
+     let buf = Cstruct.sub buf 0 (8+name_len) in 
+     let pkt = Cstruct.to_string buf in 
      lwt _ = Lwt_unix.send sock pkt 0 
                   (String.length pkt) [] in 
      printf "[tor] send data...\n%!";
+     let pkt = String.create 1500 in 
      try_lwt 
-       lwt len = Lwt_unix.recv sock buf 0 1500 [] in
+       lwt len = Lwt_unix.recv sock pkt 0 1500 [] in
      printf "[tor] received data...\n%!";
          return (len > 0)
      with err -> 
@@ -401,7 +452,21 @@ module Manager = struct
       | "server_start" -> begin
           lwt _ = restart_tor () in 
           let fd = open_in (tmp_dir ^ "/tor/hostname") in 
-          let name = input_line fd in 
+          let name = input_line fd in
+          let rec wait_for_service () = 
+            match conn_db.tor_ctrl with
+              | Some ctl -> 
+                  let wait = ref true in 
+                  while_lwt !wait do 
+                    lwt _ = Lwt_unix.sleep 1.0 in 
+                    let _ = printf "checking service...\n%!" in 
+                    lwt res = Tor_ctl.is_service_established ctl in
+                      return (wait := (not res))
+                      
+                  done 
+              | None -> failwith "Tor ctrl channel unestablished"
+          in
+          lwt _ = wait_for_service () in
           let _ = close_in fd in
             return name
         end
@@ -431,79 +496,12 @@ module Manager = struct
   (*********************************************************************
    * Connection code
    **********************************************************************)
-   
-  let read_servers () =
-    let fd = open_in "/proc/net/tcp" in 
-    let _ = input_line fd in
-    let multi_sp = Re_str.regexp "[\ ]+" in 
-    let sp = Re_str.regexp "\ " in 
-    let colon = Re_str.regexp ":" in 
-    let rec parse_tcp_data fd = 
-      try 
-        let line = input_line fd in 
-        let line = Re_str.global_replace multi_sp " " line in 
-        let fields = Re_str.split sp line in 
-        let ip_port = List.nth fields 1 in 
-        let ip, port = 
-          match (Re_str.split colon ip_port) with
-          | ip::port::_ -> 
-              (Int32.of_string ("0x"^ip), (int_of_string ("0x"^port)))
-          | _ -> failwith "Invalid line format"
-        in
-        if (ip = 0l ) then 
-          [port] @ (parse_tcp_data fd)
-        else 
-          parse_tcp_data fd
-      with End_of_file ->
-        let _ = close_in fd in 
-          []
-        | exn ->
-        let _ = eprintf "[tor] monitor err: %s\n%!" 
-                  (Printexc.to_string exn ) in 
-        let _ = close_in fd in 
-          []
-    in
-      parse_tcp_data fd 
-
-  let monitor_socket st t = 
-    nchoose 
-    [ t; 
-    (while_lwt true do 
-      let servers = read_servers () in 
-      let new_servers = 
-        List.filter 
-        (fun port ->
-          not (List.mem port conn_db.server_list) ) servers in
-      lwt _ = 
-        if (List.length new_servers > 0) then 
-          let _ = conn_db.server_list <- 
-            conn_db.server_list @ new_servers in 
-            lwt _ = Tor_ctl.expose_service st (tmp_dir ^ "/tor/")
-                      conn_db.server_list in
-              return ()
-        else
-          return () 
-      in 
-      lwt _ = Lwt_unix.sleep 10.0 in 
-        return ()
-    done)]
-
-  let connect kind _ =
+ let connect kind _ =
     try_lwt
       match kind with 
         | "listen" -> begin
             lwt _ = restart_tor () in 
-              match conn_db.monitor_return with
-                | Some _ -> return "true"
-                | None ->
-                    lwt st = Tor_ctl.init_tor_ctl "127.0.0.1" tor_ctl_port in 
-              
-                    let _ = conn_db.tor_ctrl <- Some(st) in  
-                    let (t, u) = task () in
-                    let _ = conn_db.monitor_wait <- Some(t) in 
-                    let _ = conn_db.monitor_return <- Some(u) in 
-                    let _ = ignore_result (monitor_socket st t) in  
-                      return ("true")
+              return ("true")
           end
        | _ -> 
             Printf.eprintf "[socks] Invalid connection kind %s \n%!" kind;

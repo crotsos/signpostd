@@ -21,4 +21,5 @@ type tor_ctl_state
 val init_tor_ctl: string -> int -> tor_ctl_state Lwt.t
 val expose_service: tor_ctl_state -> string -> int list -> 
   (int * string list) Lwt.t
+val is_service_established : tor_ctl_state -> bool Lwt.t
 val close_tor_ctl : tor_ctl_state -> unit Lwt.t

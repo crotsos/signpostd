@@ -15,7 +15,6 @@
 
 ## Replace this with "SocksPort 0" if you plan to run Tor only as a
 ## relay, and not make any local application connections yourself.
-User debian-tor
 SocksPort 9050 # what port to open for local application connections
 ControlPort 9051
 SocksListenAddress 0.0.0.0 # accept connections only from localhost
