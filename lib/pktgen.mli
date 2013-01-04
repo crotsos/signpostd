@@ -14,28 +14,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-open Bitstring
-
 type tcp_flags_struct = {
   urg:bool; ack: bool; 
   psh:bool; rst:bool; 
   syn:bool; fin:bool;}
 
-val get_tcp_flags : Cstruct.buf -> tcp_flags_struct
-val get_tcp_sn : Cstruct.buf -> int32
-val get_tcp_ack : Cstruct.buf -> int32
-val get_tcp_packet_payload : Cstruct.buf -> Cstruct.buf
-val gen_server_syn : Cstruct.buf -> int32 -> string -> 
-  string -> int32 -> int32 -> int -> Cstruct.buf  
+val get_tcp_flags : Cstruct.t -> tcp_flags_struct
+val get_tcp_sn : Cstruct.t -> int32
+val get_tcp_ack : Cstruct.t -> int32
+val get_tcp_packet_payload : Cstruct.t -> Cstruct.t
+val gen_server_syn : Cstruct.t -> int32 -> string -> 
+  string -> int32 -> int32 -> int -> Cstruct.t  
 val gen_tcp_syn : int32 -> string -> 
-  string -> int32 -> int32 -> int -> int ->  int -> Cstruct.buf
+  string -> int32 -> int32 -> int -> int ->  int -> Cstruct.t
 val gen_server_ack : int32 -> int32 -> string -> 
-  string -> int32 -> int32 -> int -> int ->  int -> Cstruct.buf
+  string -> int32 -> int32 -> int -> int ->  int -> Cstruct.t
 val gen_server_synack : int32 -> int32 -> string -> 
-  string -> int32 -> int32 -> int -> int -> int -> Cstruct.buf
+  string -> int32 -> int32 -> int -> int -> int -> Cstruct.t
 
 val gen_tcp_data_pkt : int32 -> int32 -> string -> 
-  string -> int32 -> int32 -> int -> int -> int -> Cstruct.buf -> 
-   Cstruct.buf
+  string -> int32 -> int32 -> int -> int -> int -> Cstruct.t -> 
+   Cstruct.t
 val gen_udp_pkt : string -> string -> int32 -> int32 -> 
-  int -> int -> Cstruct.buf -> Cstruct.buf
+  int -> int -> Cstruct.t -> Cstruct.t

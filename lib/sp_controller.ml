@@ -80,7 +80,7 @@ let preinstall_flows controller dpid port_id =
               ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
               [OP.Flow.Output(OP.Port.Local, 2000)] () in 
   let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Lwt_bytes.create 4096) in
+             (Cstruct.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in
 
   (* forward incomming multicast dns to local port. *)
@@ -91,7 +91,7 @@ let preinstall_flows controller dpid port_id =
               ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
               [OP.Flow.Output(OP.Port.Local, 2000)] () in 
   let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Lwt_bytes.create 4096) in
+             (Cstruct.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in
 
   (* drop ipv6 traffic *)
@@ -108,7 +108,7 @@ let preinstall_flows controller dpid port_id =
 (*               [OP.Flow.Output(OP.Port.No_port, 0)]  *)
               [] () in 
   let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Lwt_bytes.create 4096) in
+             (Cstruct.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in
 
   (* forward multicast traffic to local port *)
@@ -124,7 +124,7 @@ let preinstall_flows controller dpid port_id =
               ~idle_timeout:0 ~buffer_id:(-1) 
               [OP.Flow.Output(OP.Port.Local, 0)] () in 
   let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Lwt_bytes.create 4096) in
+             (Cstruct.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in
 
   return ()
@@ -144,7 +144,7 @@ let preinstall_flows controller dpid port_id =
               ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
               [OP.Flow.Output(OP.Port.Local, 2000)] () in 
   let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Lwt_bytes.create 4096) in
+             (Cstruct.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in
 
   let flow = OP.Match.create_flow_match flow_wild 
@@ -153,7 +153,7 @@ let preinstall_flows controller dpid port_id =
               ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
               [OP.Flow.Output(port_id, 2000)] () in 
   let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Lwt_bytes.create 4096) in
+             (Cstruct.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in
 
   (* setup arp handling for 10.255.0.0/24 *)
@@ -170,7 +170,7 @@ let preinstall_flows controller dpid port_id =
                 ~priority:2 ~idle_timeout:0  ~hard_timeout:0
                 ~buffer_id:(-1) [] () in 
     let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Lwt_bytes.create 4096) in
+             (Cstruct.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in
 
     (* ARP handling *)
@@ -181,7 +181,7 @@ let preinstall_flows controller dpid port_id =
                 ~priority:2 ~idle_timeout:0  ~hard_timeout:0
                 ~buffer_id:(-1) [] () in 
     let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Lwt_bytes.create 4096) in
+             (Cstruct.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in
       return ()
 
@@ -201,7 +201,7 @@ let preinstall_flows controller dpid port_id =
                 ~priority:2 ~idle_timeout:0 ~hard_timeout:0 
                 ~buffer_id:(-1) [OP.Flow.Output(port_id, 2000);] () in 
     let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Lwt_bytes.create 4096) in
+               (Cstruct.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in
 
   (* setup arp handling for 10.255.0.0/24 *)
@@ -217,7 +217,7 @@ let preinstall_flows controller dpid port_id =
                 ~priority:2 ~idle_timeout:0  ~hard_timeout:0
                 ~buffer_id:(-1) [OP.Flow.Output(port_id,2000)] () in 
     let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Lwt_bytes.create 4096) in
+               (Cstruct.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in
 
     (* ARP handling *)
@@ -228,7 +228,7 @@ let preinstall_flows controller dpid port_id =
                 ~priority:2 ~idle_timeout:0  ~hard_timeout:0
                 ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local,2000)] () in 
     let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Lwt_bytes.create 4096) in
+               (Cstruct.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in
       return () *)
 
@@ -266,7 +266,7 @@ let delete_flow ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) ?(dl_dst=None)
               ~priority [] () in 
   lwt _ = OC.send_of_data controller switch_data.dpid 
             (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Lwt_bytes.create 4096)) in 
+               (Cstruct.create 4096)) in 
           return()
 
 let setup_flow ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) ?(dl_dst=None)
@@ -304,7 +304,7 @@ let setup_flow ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) ?(dl_dst=None)
               ~priority ~idle_timeout ~hard_timeout ~buffer_id actions () in 
   lwt _ = OC.send_of_data controller switch_data.dpid 
             (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Lwt_bytes.create 4096)) in 
+               (Cstruct.create 4096)) in 
     return()
 
 
@@ -386,7 +386,7 @@ let send_packet ?(in_port=OP.Port.No_port) ?(buffer_id=(-1l))
           OP.Packet_out.create ~buffer_id ~actions
             ~data ~in_port () in
     let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out pkt) 
-               (Lwt_bytes.create 4096)  in 
+               (Cstruct.create 4096)  in 
       OC.send_of_data controller switch_data.dpid  bs
 
 
@@ -428,7 +428,7 @@ let register_handler_new  ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None)
              ~buffer_id:(-1) ~priority:100
               [OP.Flow.Output(OP.Port.Controller, 150)] () in 
  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-            (Lwt_bytes.create 4096) in
+            (Cstruct.create 4096) in
  lwt _ = OC.send_of_data controller dpid bs in 
    return (Hashtbl.replace switch_data.cb_register flow cb)
 
@@ -501,7 +501,7 @@ let register_handler flow cb =
              ~buffer_id:(-1) ~priority:100
               [OP.Flow.Output(OP.Port.Controller, 150)] () in 
  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-            (Lwt_bytes.create 4096) in
+            (Cstruct.create 4096) in
  lwt _ = OC.send_of_data controller dpid bs in 
    return (Hashtbl.replace switch_data.cb_register flow cb)
 
@@ -512,7 +512,7 @@ let unregister_handler flow_def _ =
   let controller = (List.hd switch_data.of_ctrl) in 
   let dpid = (List.hd switch_data.dpid)  in            
    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Lwt_bytes.create 4096) in
+             (Cstruct.create 4096) in
  lwt _ =  OC.send_of_data controller dpid bs in *)
   let lookup_flow flow _ =
     if (OP.Match.flow_match_compare flow_def flow
@@ -557,7 +557,7 @@ let switch_packet_in_cb controller dpid buffer_id m data in_port =
                 ~data:data ~in_port:in_port () 
         in
         let bs = OP.marshal_and_sub (OP.Packet_out.marshal_packet_out pkt) 
-                   (Lwt_bytes.create 4096) in
+                   (Cstruct.create 4096) in
           OC.send_of_data controller dpid bs
       ) else (
         let out_port = (Hashtbl.find switch_data.mac_cache ix) in
@@ -566,7 +566,7 @@ let switch_packet_in_cb controller dpid buffer_id m data in_port =
                     ~buffer_id:(Int32.to_int buffer_id)
                     actions () in 
         let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-                   (Lwt_bytes.create 4096) in
+                   (Cstruct.create 4096) in
           OC.send_of_data controller dpid bs
           )
 

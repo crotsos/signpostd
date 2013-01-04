@@ -61,7 +61,7 @@ val get_ctrl : unit -> Openflow.Ofcontroller.t
 val get_dpid : unit -> int64
 
 val send_packet : ?in_port:Openflow.Ofpacket.Port.t -> ?buffer_id:int32 ->
-  Cstruct.buf -> Openflow.Ofpacket.Flow.action list -> unit Lwt.t
+  Cstruct.t -> Openflow.Ofpacket.Flow.action list -> unit Lwt.t
 
 val delete_flow : ?in_port:int option -> ?dl_vlan:int option -> 
   ?dl_src:string option -> ?dl_dst:string option ->

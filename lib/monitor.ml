@@ -44,11 +44,16 @@ let connect_client ip port =
       | ADDR_INET(loc_ip,loc_port) -> (loc_ip,loc_port)
       | _ -> failwith "Invalid socket type"
     in
-    let pkt_bitstring = BITSTRING {
-        (Uri_IP.string_to_ipv4 (Unix.string_of_inet_addr loc_ip)):32;
-        loc_port:16; (String.length (Nodes.get_local_name ())):16;
-        (Nodes.get_local_name ()):-1:string} in 
-    let pkt = Bitstring.string_of_bitstring pkt_bitstring in 
+    let buf = Cstruct.create 1024 in 
+    let _ = Cstruct.BE.set_uint32 buf 0  (Uri_IP.string_to_ipv4
+    (Unix.string_of_inet_addr loc_ip)) in 
+    let _ = Cstruct.BE.set_uint16 buf 4 loc_port in 
+    let _ = Cstruct.BE.set_uint16 buf 6 (String.length (Nodes.get_local_name
+    ())) in
+    let _ = Cstruct.blit_from_string (Nodes.get_local_name ()) 0 buf 8 
+              (String.length (Nodes.get_local_name ())) in 
+    let pkt = Cstruct.to_string buf in 
+ 
     lwt _ = Lwt_unix.send client_sock pkt 0 (String.length pkt) [] in
     let rcv_buf = String.create 2048 in 
     lwt _ = Lwt_unix.recv client_sock rcv_buf 0 1048 [] in

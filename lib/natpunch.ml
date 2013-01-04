@@ -141,7 +141,7 @@ module Manager = struct
               let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD ~priority:110 
                           ~buffer_id:(Int32.to_int buffer_id) actions () in 
               let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-                         (Lwt_bytes.create 4096)in
+                         (Cstruct.create 4096)in
                 OC.send_of_data controller dpid bs)
     with exn ->
       ep "[natpanch] Error: %s\n%!" (Printexc.to_string exn);
@@ -255,7 +255,7 @@ module Manager = struct
                       ~buffer_id:(-1) actions () in 
 
           let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-                     (Lwt_bytes.create 4096) in
+                     (Cstruct.create 4096) in
            lwt _ = OC.send_of_data controller dpid bs in  *)
         (* Store the local ip so we know to whom it belongs when we receive
             * a packet
@@ -285,7 +285,7 @@ module Manager = struct
           let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD ~priority:200 
                       ~buffer_id:(Int32.to_int buffer_id) actions () in 
           let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-                    (Lwt_bytes.create 4096) in
+                    (Cstruct.create 4096) in
           lwt _ = OC.send_of_data controller dpid bs in
 (*           lwt _ = Lwt.sleep 0.1 in       *)
 
@@ -343,7 +343,7 @@ module Manager = struct
           let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD ~priority:200 
                       ~buffer_id:(Int32.to_int buffer_id) actions () in 
           let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-                     (Lwt_bytes.create 4096) in
+                     (Cstruct.create 4096) in
           lwt _ = OC.send_of_data controller dpid bs in
 (*           lwt _ = Sp_controller.unregister_handler flow
  *           filter_outgoing_tcp_packet in *)
@@ -373,11 +373,15 @@ module Manager = struct
         | ADDR_INET(loc_ip,loc_port) -> (loc_ip,loc_port)
         | _ -> failwith "Invalid socket type"
       in
-      let pkt_bitstring = BITSTRING {
-          (Uri_IP.string_to_ipv4 (Unix.string_of_inet_addr loc_ip)):32;
-          loc_port:16; (String.length (Nodes.get_local_name ())):16;
-          (Nodes.get_local_name ()):-1:string} in 
-      let pkt = Bitstring.string_of_bitstring pkt_bitstring in 
+      let buf = Cstruct.create 1024 in 
+      let _ = Cstruct.BE.set_uint32 buf 0  (Uri_IP.string_to_ipv4
+                (Unix.string_of_inet_addr loc_ip)) in 
+      let _ = Cstruct.BE.set_uint16 buf 4 loc_port in 
+      let _ = Cstruct.BE.set_uint16 buf 6 (String.length (Nodes.get_local_name
+                ())) in
+      let _ = Cstruct.blit_from_string (Nodes.get_local_name ()) 0 buf 8 
+              (String.length (Nodes.get_local_name ())) in 
+      let pkt = Cstruct.to_string buf in 
       lwt _ = Lwt_unix.send client_sock pkt 0 (String.length pkt) [] in
       let rcv_buf = String.create 2048 in 
       lwt _ = Lwt_unix.recv client_sock rcv_buf 0 1048 [] in
@@ -496,7 +500,7 @@ module Manager = struct
           let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD ~priority:200
                       ~buffer_id:(-1) actions () in
           let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-                     (Lwt_bytes.create 4096) in
+                     (Cstruct.create 4096) in
           lwt _ = OC.send_of_data controller dpid bs in *)
           
           (* create syn packet and send it over the openflow control
@@ -507,7 +511,7 @@ module Manager = struct
                       (OP.Packet_out.create ~buffer_id:(-1l)
                       ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
                       ~data:pkt ~in_port:(OP.Port.No_port) () ))
-                             (Lwt_bytes.create 4096) in  
+                             (Cstruct.create 4096) in  
           lwt _ = OC.send_of_data controller dpid bs in
 
           (*
@@ -528,7 +532,7 @@ module Manager = struct
                       (OP.Packet_out.create ~buffer_id:(-1l)
                       ~actions:[OP.(Flow.Output(port , 2000))]
                       ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-                     (Lwt_bytes.create 4096) in  
+                     (Cstruct.create 4096) in  
           lwt _ = OC.send_of_data controller dpid bs in
 
           (* Setup the outgoing flow from the local node to the internet 
@@ -539,7 +543,7 @@ module Manager = struct
             OP.Flow.Set_nw_dst(dst_ip);
             OP.Flow.Output(port, 2000);] in *)
           let m = OP.Match.(
-            {wildcards=(OP.Wildcards.exact_match); in_port=OP.Port.Local;
+            {wildcards=(OP.Wildcards.exact_match ()); in_port=OP.Port.Local;
              dl_dst="\xfe\xff\xff\xff\xff\xff"; dl_src=local_mac;
              dl_vlan=0xffff;dl_vlan_pcp=(char_of_int 0);dl_type=0x0800; 
              nw_src=local_sp_ip; nw_dst=remote_sp_ip;

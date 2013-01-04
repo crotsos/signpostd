@@ -156,7 +156,7 @@ let gen_server_syn data new_isn local_mac gw_mac
   let _ = set_tcpv4_sequence bits new_isn in 
   let _ = set_tcpv4_dst_port bits new_dst_port in 
   let _ = set_tcpv4_checksum bits 0 in 
-  let tcp_csm_buf = Lwt_bytes.create 
+  let tcp_csm_buf = Cstruct.create 
                       (sizeof_pseudo_header + 
                        (Cstruct.len bits) ) in
   let _ = set_pseudo_header_src tcp_csm_buf gw_ip in 
@@ -164,7 +164,7 @@ let gen_server_syn data new_isn local_mac gw_mac
   let _ = set_pseudo_header_res tcp_csm_buf 0 in 
   let _ = set_pseudo_header_proto tcp_csm_buf 6 in 
   let _ = set_pseudo_header_len tcp_csm_buf (Cstruct.len bits) in
-  let _ = Cstruct.blit_buffer bits 0 tcp_csm_buf sizeof_pseudo_header 
+  let _ = Cstruct.blit bits 0 tcp_csm_buf sizeof_pseudo_header 
             (Cstruct.len bits) in 
   let _ = set_tcpv4_checksum bits 
             (Checksum.ones_complement  tcp_csm_buf 
@@ -175,7 +175,7 @@ let gen_server_syn data new_isn local_mac gw_mac
 * *)
 let gen_tcp_packet isn ack src_mac dst_mac src_ip dst_ip 
       src_port dst_port flags win data =
-  let ret = Lwt_bytes.create 2048 in
+  let ret = Cstruct.create 2048 in
 
   (* First create the tcp header in order to avoid allocating an 
   * additional buffer *)
@@ -203,9 +203,9 @@ let gen_tcp_packet isn ack src_mac dst_mac src_ip dst_ip
   let _ = set_tcpv4_window bits win in
   let _ = set_tcpv4_urg_ptr bits 0 in 
   let _ = set_tcpv4_checksum bits 0 in
-(*  let _ = Cstruct.blit_buffer data 0 tcp_csm_hdr sizeof_tcpv4 
+(*  let _ = Cstruct.blit data 0 tcp_csm_hdr sizeof_tcpv4 
             (Cstruct.len data) in *)
-  let _ = Cstruct.blit_buffer data 0 bits sizeof_tcpv4 
+  let _ = Cstruct.blit data 0 bits sizeof_tcpv4 
             (Cstruct.len data) in
 
   let _ = set_tcpv4_checksum bits 
@@ -236,7 +236,7 @@ let gen_tcp_packet isn ack src_mac dst_mac src_ip dst_ip
 
 let gen_udp_pkt src_mac dst_mac src_ip dst_ip 
       src_port dst_port data =
-  let ret = Lwt_bytes.create 2048 in
+  let ret = Cstruct.create 2048 in
   let bits = ret in 
   let _ = set_ethernet_dst dst_mac 0 bits in 
   let _ = set_ethernet_src src_mac 0 bits in 
@@ -262,7 +262,7 @@ let gen_udp_pkt src_mac dst_mac src_ip dst_ip
             (sizeof_udpv4 + (Cstruct.len data)) in
   let _ = set_udpv4_checksum bits 0 in 
   let bits = shift bits sizeof_udpv4 in 
-  let _ = Cstruct.blit_buffer data 0 bits 0 (Cstruct.len data) in 
+  let _ = Cstruct.blit data 0 bits 0 (Cstruct.len data) in 
     Cstruct.sub ret 0 (sizeof_ethernet + sizeof_ipv4 + sizeof_udpv4 
                        + (Cstruct.len data)) 
 
@@ -271,7 +271,7 @@ let gen_tcp_syn isn src_mac dst_mac src_ip dst_ip
   gen_tcp_packet isn 0l src_mac dst_mac src_ip dst_ip 
     src_port dst_port {urg=false; ack=false; psh=false; 
       rst=false; syn=true; fin=false; } win  
-    (Lwt_bytes.create 0) 
+    (Cstruct.create 0) 
 
 
 (* 
@@ -283,7 +283,7 @@ let gen_server_ack isn ack local_mac gw_mac gw_ip local_ip
     src_port dst_port 
     {urg=false; ack=true; psh=false; 
      rst=false; syn=false; fin=false; } win 
-    (Lwt_bytes.create 0) 
+    (Cstruct.create 0) 
 
 (*  let eth_hdr = 
       BITSTRING{local_mac:48:string; gw_mac:48:string; 
@@ -316,7 +316,7 @@ let gen_server_synack isn ack local_mac gw_mac src_ip local_ip
   gen_tcp_packet isn ack local_mac gw_mac src_ip local_ip 
     src_port dst_port {urg=false; ack=true; psh=false; 
                        rst=false; syn=true; fin=false; } window
-    (Lwt_bytes.create 0) 
+    (Cstruct.create 0) 
 
 (*  let window = 0xffff in 
   let eth_hdr = BITSTRING{local_mac:48:string; gw_mac:48:string; 0x0800:16} in 

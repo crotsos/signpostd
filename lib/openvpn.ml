@@ -370,7 +370,7 @@ module Manager = struct
                  (input_line ip_stream) in 
     let dl_src = Net_cache.mac_of_string (List.nth test 1) in
     let data = OP.marshal_and_sub (create_gratituous_arp dl_src nw_src) 
-                 (Lwt_bytes.create 512) in
+                 (Cstruct.create 512) in
     lwt _ = Sp_controller.send_packet data [ OP.(Flow.Output(Port.All , 2000))] in
       return ()
 

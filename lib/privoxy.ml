@@ -176,11 +176,11 @@ module Manager = struct
                 (OP.Packet_out.create ~buffer_id:(-1l)
                    ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
                    ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-               (Lwt_bytes.create 4096) in  
+               (Cstruct.create 4096) in  
     lwt _ = OC.send_of_data controller dpid bs in 
 
   (* Send an http request to setup the persistent connection to the ssl server *)
-  let sock_req = Lwt_bytes.of_string conn.data in 
+  let sock_req = Cstruct.of_bigarray (Lwt_bytes.of_string conn.data) in 
   let pkt = (gen_tcp_data_pkt 
                (Int32.sub conn.src_isn
                   (Int32.of_int ((String.length conn.data) - 1)) )
@@ -192,7 +192,7 @@ module Manager = struct
               (OP.Packet_out.create ~buffer_id:(-1l)
                  ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
                 ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-             (Lwt_bytes.create 4096) in  
+             (Cstruct.create 4096) in  
     OC.send_of_data controller dpid bs
 
   let ssl_complete_flow controller dpid conn m dst_port = 
@@ -209,7 +209,7 @@ module Manager = struct
                 (OP.Packet_out.create ~buffer_id:(-1l)
                    ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
                    ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-               (Lwt_bytes.create 4096) in  
+               (Cstruct.create 4096) in  
     lwt _ = OC.send_of_data controller dpid bs in
 
     let pkt = gen_server_ack 
@@ -222,7 +222,7 @@ module Manager = struct
                 (OP.Packet_out.create ~buffer_id:(-1l)
                    ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))]
                    ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-               (Lwt_bytes.create 4096) in  
+               (Cstruct.create 4096) in  
     lwt _ = OC.send_of_data controller dpid bs in
 
     
@@ -237,10 +237,10 @@ module Manager = struct
   let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
               ~buffer_id:(-1) actions () in 
   let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
-             (Lwt_bytes.create 4096) in
+             (Cstruct.create 4096) in
   lwt _ = OC.send_of_data controller dpid bs in 
 
-  let m = OP.Match.({wildcards=(OP.Wildcards.exact_match);
+  let m = OP.Match.({wildcards=(OP.Wildcards.exact_match ());
                      in_port=OP.Port.Local; dl_src=conn.src_mac;
                      dl_dst=conn.dst_mac; dl_vlan=0xffff;
                      dl_vlan_pcp=(char_of_int 0); dl_type=0x0800;
@@ -257,7 +257,7 @@ module Manager = struct
   let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
               ~buffer_id:(-1) actions () in 
   let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Lwt_bytes.create 4096) in
+             (Cstruct.create 4096) in
     OC.send_of_data controller dpid bs 
     
   
@@ -290,7 +290,7 @@ module Manager = struct
                               [OP.Flow.Output(port_id, 2000);] 
                               () in 
                   let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-                             (Lwt_bytes.create 4096) in
+                             (Cstruct.create 4096) in
                     OC.send_of_data controller dpid bs
                 )
               | false -> (
@@ -319,7 +319,7 @@ module Manager = struct
                                   ~buffer_id:(Int32.to_int buffer_id)
                                   actions () in 
                       let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-                                 (Lwt_bytes.create 4096) in
+                                 (Cstruct.create 4096) in
                         OC.send_of_data controller dpid bs)
             with ex ->
               return (Printf.printf "[privoxy] error: %s\n%!" (Printexc.to_string ex))
@@ -345,7 +345,7 @@ module Manager = struct
                                   [OP.Flow.Output(port_id, 2000);] 
                                   () in 
                       let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-                                 (Lwt_bytes.create 4096) in
+                                 (Cstruct.create 4096) in
                         OC.send_of_data controller dpid bs
 
                     with ex -> 
@@ -383,7 +383,7 @@ module Manager = struct
                                   (OP.Packet_out.create ~buffer_id:(-1l)
                                      ~actions:[OP.(Flow.Output(OP.Port.Local , 2000))] 
                                      ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-                                 (Lwt_bytes.create 4096) in  
+                                 (Cstruct.create 4096) in  
                         OC.send_of_data controller dpid bs 
             ) 
           )
@@ -403,7 +403,7 @@ module Manager = struct
                                    ~buffer_id:(Int32.to_int buffer_id)
                                    actions () in 
                        let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-                                  (Lwt_bytes.create 4096) in
+                                  (Cstruct.create 4096) in
                          OC.send_of_data controller dpid bs
                    | SSL ->
                        (

@@ -216,7 +216,7 @@ let handle_notification _ method_name arg_list =
                  (OP.Packet_out.create ~buffer_id:(-1l)
                     ~actions:[OP.(Flow.Output(port, 2000))]
                     ~data:pkt ~in_port:(OP.Port.No_port) () ))
-              (Lwt_bytes.create 4096) in  
+              (Cstruct.create 4096) in  
 
           let pkt = gen_server_synack (Int32.of_string isn) (Int32.of_string ack)
                       mac_a "\xf0\xad\x4e\x00\xcb\xab" ip_b ip_a
@@ -227,7 +227,7 @@ let handle_notification _ method_name arg_list =
                       (OP.Packet_out.create ~buffer_id:(-1l)
                       ~actions:[OP.(Flow.Output(port, 2000))]
                       ~data:pkt ~in_port:(OP.Port.No_port) () )) 
-                       (Lwt_bytes.create 4096) in 
+                       (Cstruct.create 4096) in 
           lwt _ =  OC.send_of_data controller dpid bs_b in
           lwt _ =  Lwt_unix.sleep 1.0 in
           lwt _ =  OC.send_of_data controller dpid bs_a in

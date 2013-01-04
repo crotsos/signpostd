@@ -106,6 +106,10 @@ In order to get network connectivity on the command line you need to configure t
 * In order to use the dhcp protocol you need to run `sudo ipconfig set tap0 dhcp`
 * In order to set manually the network configuration `sudo ipconfig set tap0 manual ip netmask`
 
+> brew install libevent
+
+> brew link --overwrite libevent 
+
 > brew install tor 
 
 > curl http://tunnelblick.googlecode.com/files/Tunnelblick_3.2.8.dmg > Tunnelblick_3.2.8.dmg # mount dmg and install program

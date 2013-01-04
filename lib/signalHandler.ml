@@ -120,28 +120,31 @@ module Make (Handler : HandlerSig) = struct
         let ip = (Uri_IP.string_to_ipv4 (Unix.string_of_inet_addr ip)) in
         let rcv_buf = String.create 2048 in 
         lwt recvlen = Lwt_unix.recv client_sock rcv_buf 0 1048 [] in
-        let buf = Bitstring.bitstring_of_string 
-                    (String.sub rcv_buf 0 recvlen) in 
-        bitmatch buf with 
-          | {loc_ip:32; loc_port:16; 
-             name_len:16; name:(name_len*8):string} ->
-            (printf "received %s from %s:%d external %s:%d\n%!"
-              name (Uri_IP.ipv4_to_string loc_ip) loc_port 
-              (Uri_IP.ipv4_to_string ip) port;
-            Nodes.add_node_public_ip name 
-              (Uri_IP.ipv4_to_string ip) (loc_ip = ip) 
-              (loc_port = port); 
-            let reply = BITSTRING{ip:32; port:16; name_len:16;
-                                  name:(name_len*8):string} in 
-            let reply_str = Bitstring.string_of_bitstring reply in 
-              lwt _ = Lwt_unix.send client_sock reply_str 0 
-                        (String.length reply_str) [] in 
-            
-              return (Lwt_unix.shutdown client_sock Lwt_unix.SHUTDOWN_ALL))
-          | {_} ->
-              printf "[echo_server] failed to parse packet\n%!";
-              return (Lwt_unix.shutdown client_sock Lwt_unix.SHUTDOWN_ALL)
-      with exn -> 
+        let buf = 
+          Cstruct.of_bigarray 
+            (Lwt_bytes.of_string
+              (String.sub rcv_buf 0 recvlen)) in
+        let loc_ip = Cstruct.BE.get_uint32 buf 0 in 
+        let loc_port = Cstruct.BE.get_uint16 buf 4 in 
+        let name_len = Cstruct.BE.get_uint16 buf 6 in 
+        let name = Cstruct.copy buf 8 name_len in 
+        let _ = printf "received %s from %s:%d external %s:%d\n%!"
+                  name (Uri_IP.ipv4_to_string loc_ip) loc_port 
+                  (Uri_IP.ipv4_to_string ip) port in
+        let _ = Nodes.add_node_public_ip name 
+                (Uri_IP.ipv4_to_string ip) (loc_ip = ip) 
+                (loc_port = port) in 
+        
+        let buf = Cstruct.create 1024 in 
+        let _ = Cstruct.BE.set_uint32 buf 0 ip in 
+        let _ = Cstruct.BE.set_uint16 buf 4 port in 
+        let _ = Cstruct.BE.set_uint16 buf 6 name_len in
+        let _ = Cstruct.blit_from_string name 0 buf 8 name_len in 
+        let reply = Cstruct.to_string buf in 
+        lwt _ = Lwt_unix.send client_sock reply 0 
+                        (String.length reply) [] in 
+          return (Lwt_unix.shutdown client_sock Lwt_unix.SHUTDOWN_ALL)
+     with exn -> 
         Printf.eprintf "[echo_server]daemon error: %s\n%!" 
           (Printexc.to_string exn);
         return ()

@@ -119,7 +119,6 @@
 # OASIS_STOP
 <lib/*.ml{,i}>: syntax_camlp4o
 <lib/*.ml{,i}>: pkg_lwt.syntax
-<lib/*.ml{,i}>: pkg_bitstring.syntax
 <lib/*.ml{,i}>: pkg_cstruct.syntax
 <**/*.ml>: warn_Z, annot
 true: annot

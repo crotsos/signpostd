@@ -29,6 +29,20 @@ module Manager = struct
   exception SshError of string
   exception MissingSshArgumentError
 
+  let get_port_id dev = 
+    let rec get_port_id_inner dev = function
+      | 0 -> raise Not_found
+      | c -> 
+          try_lwt 
+            let port = Net_cache.Port_cache.dev_to_port_id dev in
+              return port
+          with Not_found -> 
+            lwt _ = Lwt_unix.sleep 1.0 in 
+              get_port_id_inner dev (c-1)
+    in
+      get_port_id_inner dev 5
+
+
   (**************************************************
    *         Tactic state
    **************************************************)
@@ -259,8 +273,10 @@ module Manager = struct
       return (pid)
 
   let setup_flows dev mac_addr local_ip rem_ip local_sp_ip 
-        remote_sp_ip = 
-    let port = Net_cache.Port_cache.dev_to_port_id dev in
+        remote_sp_ip =
+          let _ = printf "looking for %s\n%!" dev in 
+    lwt port = get_port_id dev in
+          let _ = printf "found %s\n%!" dev in 
     let actions = [ OP.Flow.Set_nw_src(local_ip);
                     OP.Flow.Set_nw_dst(rem_ip);
                     OP.Flow.Set_dl_dst(
@@ -292,23 +308,35 @@ module Manager = struct
   let connect kind args =
     try_lwt
       match kind with
-          | "server" -> (
-          let rem_domain, rem_node, conn_id, rem_sp_ip, loc_tun_ip = 
+          | "start_server" -> begin
+               let rem_domain,rem_node,conn_id,rem_sp_ip,loc_tun_ip = 
+                match args with 
+                  | rem_domain::rem_node::conn_id::rem_sp_ip::loc_tun_ip::_ -> 
+                    (rem_domain, rem_node, (Int32.of_string conn_id), 
+                   (Uri_IP.string_to_ipv4 rem_sp_ip), loc_tun_ip)
+                  | _ -> raise(SshError("connect Insufficient params"))
+               in 
+               let dev_id = Tap.get_new_dev_ip () in 
+               (* Adding remote node public key in authorized keys file *)
+               let q_rem_domain = sprintf "%s.%s" rem_domain Config.domain in
+               let _ = server_add_client conn_id q_rem_domain rem_sp_ip dev_id rem_node in
+                 return (string_of_int dev_id)
+          end
+          | "connect_server" -> begin
+          let rem_domain,rem_node,conn_id,rem_sp_ip,loc_tun_ip,dev_id = 
             match args with 
-            | rem_domain::rem_node::conn_id::rem_sp_ip::loc_tun_ip::_ -> 
+            | rem_domain::rem_node::conn_id::rem_sp_ip::loc_tun_ip::dev_id::_ -> 
               (rem_domain, rem_node, (Int32.of_string conn_id), 
-               (Uri_IP.string_to_ipv4 rem_sp_ip), loc_tun_ip)
+               (Uri_IP.string_to_ipv4 rem_sp_ip), loc_tun_ip, 
+               (int_of_string dev_id) )
             | _ -> raise (SshError("connect Insufficient params"))
           in 
   
           (* Setup tunel tun tap device *)
-          let dev_id = Tap.get_new_dev_ip () in
           lwt _ = Tap.setup_dev dev_id loc_tun_ip in 
 
-          (* Adding remote node public key in authorized keys file *)
-          let q_rem_domain = sprintf "%s.%s" rem_domain Config.domain in
-          let _ = server_add_client conn_id q_rem_domain rem_sp_ip dev_id rem_node in
-            return(string_of_int dev_id))
+           return(string_of_int dev_id)
+          end
         | "client" ->
           let (server_ip, ssh_port, rem_domain, rem_node, 
               conn_id, loc_tun_ip, rem_dev) =
@@ -344,7 +372,10 @@ module Manager = struct
  * *)
   let setup_flows dev mac_addr local_ip rem_ip local_sp_ip 
         remote_sp_ip = 
+    
+    let _ = printf "looking for dev %s\n%!" dev in 
     let port = Net_cache.Port_cache.dev_to_port_id dev in
+    let _ = printf "found dev %s\n%!" dev in 
     let actions = [ OP.Flow.Set_nw_src(local_ip);
                     OP.Flow.Set_nw_dst(rem_ip);
                     OP.Flow.Set_dl_dst(
@@ -359,7 +390,8 @@ module Manager = struct
     (* get local mac address *)
     let ip_stream = (Unix.open_process_in
                        (Config.dir ^ 
-                        "/client_tactics/get_local_device br0")) in
+                        "/client_tactics/get_local_device "
+                        ^ Config.bridge_intf)) in
     let ips = Re_str.split (Re_str.regexp " ") (input_line ip_stream) in 
     let mac = Net_cache.mac_of_string (List.nth ips 1) in
 
@@ -386,12 +418,14 @@ module Manager = struct
               Uri_IP.string_to_ipv4 local_sp_ip,
               Uri_IP.string_to_ipv4 remote_sp_ip)
             | _ -> failwith "Insufficient args" in
+          let _ = printf "looking for id %ld\n%!" conn_id in 
           let conn = 
             Hashtbl.fold 
               (fun _ conn r -> 
                 if (conn.conn_id = conn_id) then 
                   Some(conn)
                       else r ) conn_db.conns None in 
+          let _ = printf "finished looking for id %ld\n%!" conn_id in 
           lwt _ = match conn with
               | None -> 
                   raise (SshError(("openvpn enable invalid conn_id")))
