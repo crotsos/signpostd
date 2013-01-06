@@ -62,7 +62,7 @@ let send_command st cmd =
         return (status, [data]) 
   in
   lwt ret = read_reply st 0 in 
-  let _ = print_data ret in 
+(*  let _ = print_data ret in *)
     return ret
 
 let init_tor_ctl ip port =

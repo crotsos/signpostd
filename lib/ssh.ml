@@ -192,7 +192,9 @@ module Manager = struct
     lwt _ = run_server () in 
     (* Dump keys in authorized_key file *)
     let update_authorized_keys () = 
-      let file = open_out "/root/.ssh/signpost_tunnel" in 
+      let file = 
+        open_out 
+          (sprintf "%s/.ssh/signpost_tunnel" Config.root_dir) in 
         Hashtbl.iter (fun _ client ->
                         if (client.conn_tp = SSH_CLIENT) then
                              output_string file (client.key ^ "\n") 

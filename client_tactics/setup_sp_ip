@@ -4,11 +4,8 @@ case `uname` in
   Darwin )
     ifconfig $1 alias $2 netmask 255.255.255.252
     arp -s $3 fe:ff:ff:ff:ff:ff
-    sleep 1
+    sleep 2
     route add $2/16 $3
-    echo ifconfig $1 alias $2 netmask 255.255.255.252
-    echo arp -s $3 fe:ff:ff:ff:ff:ff
-    echo route add $2/16 $3
      ;;
   Linux )
     ip addr add $ip/30 dev $1

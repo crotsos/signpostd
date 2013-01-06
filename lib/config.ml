@@ -42,3 +42,4 @@ let tunnel_check_interval = 30.0
 
 let net_intf = "en0"
 let bridge_intf = "tap0"
+let root_dir = "/var/root/"
