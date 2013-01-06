@@ -351,11 +351,11 @@ module Manager = struct
           let loc_dev = Tap.get_new_dev_ip () in 
           lwt _ = client_add_server conn_id rem_domain
                     server_ip ssh_port loc_dev rem_node in
-          lwt _ = Tap.setup_dev loc_dev loc_tun_ip in
           lwt pid = 
             client_connect (Uri_IP.ipv4_to_string server_ip) 
             ssh_port loc_dev rem_dev in
-
+          lwt _ = Lwt_unix.sleep 2.0 in 
+          lwt _ = Tap.setup_dev loc_dev loc_tun_ip in
           (* update pid from client state *)
           let domain = sprintf "%s.%s" rem_domain Config.domain in
           let conn = Hashtbl.find conn_db.conns domain in 

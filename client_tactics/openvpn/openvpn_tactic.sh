@@ -1,6 +1,8 @@
 #!/usr/bin/env bash 
 set -e
 
+eval `opam config -env`
+
 # ./openvpn_tactic.sh 10000 0 d2.signpo.st debian haris 10.10.0.2
 
 port=$1

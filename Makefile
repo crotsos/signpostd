@@ -3,6 +3,9 @@ all: build test doc
 
 # export OCAMLRUNPARAM=b
 
+# CFLAGS += -cflags -cc,-O2,-cc,-I/usr/include/libnl3
+LDFLAGS += -lflags -cclib,-lc,-cclib,-lnl-3,-cclib,-lnl-route-3
+
 setup.bin: setup.ml
 	ocamlopt.opt -o $@ $< || ocamlopt -o $@ $< || ocamlc -o $@ $<
 	rm -f setup.cmx setup.cmi setup.o setup.cmo
@@ -11,7 +14,7 @@ setup.data: setup.bin
 	./setup.bin -configure
 
 build: setup.data setup.bin
-	./setup.bin -build
+	./setup.bin -build -j 4 $(CFLAGS) $(LDFLAGS)
 #	ocamlbuild lib/server.byte
 #	ocamlbuild lib/client.byte
 

@@ -23,7 +23,7 @@ let ip_slash_24 = "172.16.11."
 let external_ip = "23.23.179.30"
 let external_dns = "23.23.179.30" 
 
-let dir = "/Users/cr409/signpostd/"
+let dir = "/root/signpostd/"
 let conf_dir = dir ^ "/conf/"
 let tmp_dir = dir ^ "/tmp/"
 let iodine_node_ip = "172.16.11.1"
@@ -40,5 +40,6 @@ let monitor_timeout = 5.0
 let monitor_interval = 10.0
 let tunnel_check_interval = 30.0 
 
-let net_intf = "en0"
-let bridge_intf = "tap0"
+let net_intf = "eth0"
+let bridge_intf = "br0"
+let ovs = "/usr/bin/ovs-vsctl"

@@ -38,8 +38,8 @@ let setup_dev dev_id ip =
   let dev = Printf.sprintf "tap%d" dev_id in 
   (* lwt _ = Lwt_unix.system 
             (Printf.sprintf "tunctl -t %s" dev) in *)
-(*  lwt _ = Lwt_unix.system 
-            (Printf.sprintf "ifconfig tap%d up" dev_id) in *)
+  lwt _ = Lwt_unix.system 
+            (Printf.sprintf "ifconfig tap%d up" dev_id) in 
   lwt _ = Sp_controller.add_dev dev ip "24" in
   let _ = Net_cache.Routing.add_next_hop (Uri_IP.string_to_ipv4 ip) 
             0xffffff00l 0l dev in 
