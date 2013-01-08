@@ -8,8 +8,9 @@ case `uname` in
     route add $2/16 $3
      ;;
   Linux )
-    ip addr add $ip/30 dev $1
+    ip addr add $2/30 dev $1
     arp -s $3 fe:ff:ff:ff:ff:ff
-    route add -net $ip/16 gw $3
+    net=`echo $2 | cut -d . -f 1,2`.0.0
+    route add -net $net/16 gw $3
     ;;
   esac

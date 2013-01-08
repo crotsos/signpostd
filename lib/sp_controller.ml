@@ -129,110 +129,7 @@ let preinstall_flows controller dpid port_id =
 
   return ()
 
-(*   let preinstall_flows_eth0 controller dpid port_id = 
-  let port = OP.Port.int_of_port port_id in 
-  (* A few rules to reduce load on the control channel *)
-  let flow_wild = OP.Wildcards.({
-    in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-    dl_type=true; nw_proto=true; tp_dst=true; tp_src=true;
-    nw_dst=(char_of_int 32); nw_src=(char_of_int 32);
-    dl_vlan_pcp=true; nw_tos=true;}) in
-
-  (* forward broadcast traffic to output port *)
-  let flow = OP.Match.create_flow_match flow_wild ~in_port:port () in
-  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:1
-              ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
-              [OP.Flow.Output(OP.Port.Local, 2000)] () in 
-  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Cstruct.create 4096) in
-  lwt _ = OC.send_of_data controller dpid bs in
-
-  let flow = OP.Match.create_flow_match flow_wild 
-               ~in_port:(OP.Port.int_of_port OP.Port.Local) () in
-  let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD ~priority:1
-              ~hard_timeout:0 ~idle_timeout:0 ~buffer_id:(-1) 
-              [OP.Flow.Output(port_id, 2000)] () in 
-  let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Cstruct.create 4096) in
-  lwt _ = OC.send_of_data controller dpid bs in
-
-  (* setup arp handling for 10.255.0.0/24 *)
-    let arp_wild = OP.Wildcards.({
-      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 7); nw_src=(char_of_int 7);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let ip = Uri_IP.string_to_ipv4  "10.255.0.128" in
-    let flow = OP.Match.create_flow_match arp_wild
-                 ~in_port:(OP.Port.int_of_port OP.Port.Local) ~dl_type:0x0806
-                 ~nw_src:ip ~nw_dst:ip () in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:2 ~idle_timeout:0  ~hard_timeout:0
-                ~buffer_id:(-1) [] () in 
-    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Cstruct.create 4096) in
-    lwt _ = OC.send_of_data controller dpid bs in
-
-    (* ARP handling *)
-    let flow = OP.Match.create_flow_match arp_wild
-                 ~in_port:(port) ~dl_type:0x0806
-                 ~nw_src:ip ~nw_dst:ip () in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:2 ~idle_timeout:0  ~hard_timeout:0
-                ~buffer_id:(-1) [] () in 
-    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-             (Cstruct.create 4096) in
-    lwt _ = OC.send_of_data controller dpid bs in
-      return ()
-
-
-  let preinstall_flows_eth1 controller dpid port_id =
-    let port = OP.Port.int_of_port port_id in 
-    let ip = Uri_IP.string_to_ipv4 "10.255.0.0" in
-    let flow_wild = OP.Wildcards.({
-      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 8); nw_src=(char_of_int 32);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match flow_wild 
-                ~in_port:(OP.Port.int_of_port OP.Port.Local) 
-                 ~dl_type:(0x0800) ~nw_dst:ip () in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:2 ~idle_timeout:0 ~hard_timeout:0 
-                ~buffer_id:(-1) [OP.Flow.Output(port_id, 2000);] () in 
-    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Cstruct.create 4096) in
-    lwt _ = OC.send_of_data controller dpid bs in
-
-  (* setup arp handling for 10.255.0.0/24 *)
-    let arp_wild = OP.Wildcards.({
-      in_port=false; dl_vlan=true; dl_src=true; dl_dst=true;
-      dl_type=false; nw_proto=true; tp_dst=true; tp_src=true;
-      nw_dst=(char_of_int 8); nw_src=(char_of_int 8);
-      dl_vlan_pcp=true; nw_tos=true;}) in
-    let flow = OP.Match.create_flow_match arp_wild
-                 ~in_port:(OP.Port.int_of_port OP.Port.Local) ~dl_type:0x0806
-                 ~nw_src:ip ~nw_dst:ip () in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:2 ~idle_timeout:0  ~hard_timeout:0
-                ~buffer_id:(-1) [OP.Flow.Output(port_id,2000)] () in 
-    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Cstruct.create 4096) in
-    lwt _ = OC.send_of_data controller dpid bs in
-
-    (* ARP handling *)
-    let flow = OP.Match.create_flow_match arp_wild
-                 ~in_port:(port) ~dl_type:0x0806
-                 ~nw_src:ip ~nw_dst:ip () in
-    let pkt = OP.Flow_mod.create flow 0L OP.Flow_mod.ADD 
-                ~priority:2 ~idle_timeout:0  ~hard_timeout:0
-                ~buffer_id:(-1) [OP.Flow.Output(OP.Port.Local,2000)] () in 
-    let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
-               (Cstruct.create 4096) in
-    lwt _ = OC.send_of_data controller dpid bs in
-      return () *)
-
-let delete_flow ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) ?(dl_dst=None)
+  let delete_flow ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) ?(dl_dst=None)
       ?(dl_type=None) ?(nw_proto=None) ?(tp_dst=None) ?(tp_src=None)
       ?(nw_dst=None) ?(nw_dst_len=32) ?(nw_src=None) ?(nw_src_len=32)
       ?(dl_vlan_pcp=None) ?(nw_tos=None) ?(priority=0) () =
@@ -268,6 +165,7 @@ let delete_flow ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) ?(dl_dst=None)
             (OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt) 
                (Cstruct.create 4096)) in 
           return()
+
 
 let setup_flow ?(in_port=None) ?(dl_vlan=None) ?(dl_src=None) ?(dl_dst=None)
       ?(dl_type=None) ?(nw_proto=None) ?(tp_dst=None) ?(tp_src=None)
@@ -614,8 +512,8 @@ let init controller =
     OC.register_cb controller OE.PORT_STATUS_CHANGE port_status_cb
 
 let add_dev dev ip netmask =
-  lwt _ = Lwt_unix.system (sprintf "ovs-vsctl add-port %s %s" 
-                            Config.bridge_intf dev) in
+  lwt _ = Lwt_unix.system (sprintf "%s add-port %s %s" 
+                            Config.ovs Config.bridge_intf dev) in
   lwt _ = Lwt_unix.system (sprintf "ifconfig %s up" dev) in
    lwt _ = 
     Lwt_unix.system 
@@ -624,8 +522,8 @@ let add_dev dev ip netmask =
   return ()
 
 let del_dev dev ip netmask =
-  lwt _ = Lwt_unix.system (sp "ovs-vsctl del-port %s %s" 
-                            Config.bridge_intf dev) in 
+  lwt _ = Lwt_unix.system (sp "%s del-port %s %s" 
+                            Config.ovs Config.bridge_intf dev) in 
   lwt _ = 
     Lwt_unix.system 
       (sp "%s/client_tactics/del_bridge_ip %s %s %s" 

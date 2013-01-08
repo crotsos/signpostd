@@ -406,7 +406,7 @@ module Manager = struct
         let dev_id = Tap.get_new_dev_ip () in
         lwt _ = start_openvpn_daemon ip port node domain 
                   "client" dev_id in
-        lwt _ = Lwt_unix.sleep 0.5 in 
+        lwt _ = Lwt_unix.sleep 2.0 in 
         lwt _ = Tap.setup_dev dev_id 
                   (Uri_IP.ipv4_to_string local_ip) in
          let pid = read_pid_from_file (Config.tmp_dir ^ "/" ^ 
