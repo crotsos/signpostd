@@ -40,7 +40,7 @@ let monitor_timeout = 5.0
 let monitor_interval = 10.0
 let tunnel_check_interval = 30.0 
 
-let net_intf = "en0"
-let bridge_intf = "tap0"
-let root_dir = "/var/root/"
-let ovs = "/usr/local/bin/ovs-vsctl"
+let net_intf = "eth0"
+let bridge_intf = "br0"
+let ovs = "/ovs-vsctl"
+let root_dir="/root/"
