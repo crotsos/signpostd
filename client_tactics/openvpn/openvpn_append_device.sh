@@ -1,6 +1,8 @@
 #!/usr/bin/env bash 
 set -e
 
+eval `opam config -env`
+
 # ./openvpn_append_device.sh haris.d2 debian.d2 signpo.st haris.d2.signpo.st conf/ tmp/
 local_node=$1
 remote_node=$2
@@ -14,7 +16,7 @@ ns_port=$8
 # create tmp folder
 remote_host=$remote_node.$domain
 local_host=$local_node.$domain
-dst_dir=$tmp_dir/$dst_domain/
+dst_dir=$tmp_dir/$local_host/
 
 if [ ! -e $dst_dir ]; then 
   echo "Missing folder $dst_dir"
@@ -22,7 +24,7 @@ if [ ! -e $dst_dir ]; then
 fi
 
 # sign the remote domain certificate
-/usr/local/bin/crypto-convert \
+crypto-convert \
   -p $conf_dir/signpost.pem  \
   -d 30758400 \
   -s "C=UK,O=signpost,CN=$remote_host," \
