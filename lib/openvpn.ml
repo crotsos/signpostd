@@ -45,19 +45,15 @@ module Manager = struct
   type conn_db_type = {
     (* connection details for a specific domain *)
     conns : (string, conn_type) Hashtbl.t;
-    mutable server : process_none option;
-    (* an lwt thread with the udp server *)
-    mutable can: unit Lwt.t option;
-    (* a file descriptor for the udp server *)
-    mutable fd: file_descr option;
     (* connected clients on server *)
+    mutable server : process_none option;
     mutable clients: string list;
     mutable server_dev_id : int;
   }
 
   let conn_db = 
     {conns=(Hashtbl.create 0); server=None;
-     can=None;fd=None;clients=[];server_dev_id=0;}
+     clients=[];server_dev_id=0;}
 
   (*
    * a helper function that waits until a newly installed dev
@@ -70,7 +66,28 @@ module Manager = struct
  *             Testing code 
  *******************************************************)
 
-  let start_openvpn_daemon port = 
+  let start_openvpn_client ip port rem_node dev_id = 
+    (* Generate conf directories and keys *)
+      let cmd = Config.dir ^ 
+                "/client_tactics/openvpn/openvpn_client.sh" in
+      let local_node = sprintf "%s.d%d.%s" (Nodes.get_local_name ())
+                    Config.signpost_number Config.domain in 
+      let exec_cmd = 
+          sprintf "%s %d %d %s %s %s %s %s %s %d"
+            cmd port dev_id local_node rem_node (Uri_IP.ipv4_to_string ip)
+            Config.conf_dir Config.tmp_dir
+            Config.ns_server Config.dns_port in
+       printf "[openvpn] executing %s\n%!" exec_cmd;
+      lwt _ = Lwt_unix.system exec_cmd in 
+      let pid = 
+        open_process_none 
+          ("openvpn", 
+            [|"--config"; 
+              (Config.tmp_dir^"/"^rem_node^"/client.conf") ;|]) in  
+      lwt _ = Lwt_unix.sleep 1.0 in      
+        return (pid)
+ 
+   let start_openvpn_daemon port = 
     (* Generate conf directories and keys *)
     match conn_db.server with
     | None -> 
@@ -102,36 +119,6 @@ module Manager = struct
         return (pid#pid)
     | Some pid -> return (pid#pid) 
  
- 
-(*
- * setup an echo udp listening socket. 
- *
- * *)
-(*  let run_server _ port =
-    Printf.printf "[openvpn] Starting udp server\n%!";
-    let buf = String.create 1500 in
-    let sock =Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM
-              (Unix.getprotobyname "udp").Unix.p_proto in
-    let _ = 
-      try
-        (Lwt_unix.bind sock (Lwt_unix.ADDR_INET (Unix.inet_addr_any,
-        port)));
-        Lwt_unix.setsockopt sock Unix.SO_REUSEADDR true
-      with Unix.Unix_error (e, _, _) ->
-        printf "[openvpn] error: %s\n%!" (Unix.error_message e);
-        raise (OpenVpnError("Couldn't be a udp server"))
-    in
-    (* save socket fd so that we can terminate it *)
-    let _ = conn_db.fd <- Some(sock) in 
-
-    (* start background echo udp server to test connectivity*)
-    conn_db.can <- Some(while_lwt true do
-        lwt (len, ip) = Lwt_unix.recvfrom sock buf 0 1500 [] in
-        lwt _ = Lwt_unix.sendto sock 
-                  (String.sub buf 0 len) 0 len [] ip in
-            return ( )
-        done) *)
-
 (*
  * a udp client to send data. 
  * *)
@@ -157,10 +144,10 @@ module Manager = struct
      try_lwt 
        let ret = ref None in 
        let recv = 
-         (lwt (len, addr) = Lwt_unix.recvfrom sock buf 0 1500 [] in
+         (lwt (_, addr) = Lwt_unix.recvfrom sock buf 0 1500 [] in
        let _ = 
          match addr with 
-         | ADDR_INET(ip, port) -> ret := Some(Unix.string_of_inet_addr ip )
+         | ADDR_INET(ip, _) -> ret := Some(Unix.string_of_inet_addr ip )
          | _ -> failwith "[openvpn] run_client failed with a bad response addr"
        in
          return ()) in
@@ -246,23 +233,23 @@ module Manager = struct
 
       
  (* start server *)
-  let server_append_dev node domain =
+  let server_append_dev rem_node =
     let cmd = Config.dir ^ 
               "/client_tactics/openvpn/openvpn_append_device.sh" in
     let exec_cmd =  
       (* nusty hack to know if you are running on a server or a client *)
       if ((Nodes.get_local_name ()) = "unknown" ) then
-        sprintf "%s d%d %s %s %s %s %s %s %d"
-          cmd Config.signpost_number node Config.domain 
-          domain Config.conf_dir Config.tmp_dir 
+        sprintf "%s d%d.%s %s %s %s %s %d"
+          cmd Config.signpost_number Config.domain rem_node 
+          Config.conf_dir Config.tmp_dir 
           Config.external_dns 5354  
       else
-        sprintf "%s %s.d%d %s %s %s %s %s %s %d"
+        sprintf "%s %s.d%d.%s %s %s %s %s %d"
           cmd  (Nodes.get_local_name ()) Config.signpost_number 
-          node Config.domain domain Config.conf_dir 
+          Config.domain rem_node Config.conf_dir 
           Config.tmp_dir Config.external_dns 5354
     in
-      printf "[openvpn] executing %s\n%!" exec_cmd;
+    let _ = printf "[openvpn] executing %s\n%!" exec_cmd in 
       Lwt_unix.system exec_cmd  
         
   let read_pid_from_file filename = 
@@ -276,39 +263,25 @@ module Manager = struct
 
   (* This method will check if a server listening for a specific 
   * domain is running or not, and handle certificates appropriately. *)
-  let get_domain_dev_id node domain port ip conn_id rem_node = 
+  let get_domain_dev_id port ip rem_node = 
 (*    if Hashtbl.mem conn_db.conns domain then  ( 
       let conn = Hashtbl.find conn_db.conns domain in *)
       lwt pid = start_openvpn_daemon port in 
-      let found = List.mem (node^"."^Config.domain) conn_db.clients in
-        if (List.mem (node^"."^Config.domain) conn_db.clients) then (
+        if (List.mem rem_node conn_db.clients) then (
           (* A connection already exists *)
-          printf "[openvpn] node %s is already added\n%!" node;
+          printf "[openvpn] node %s is already added\n%!" rem_node;
           return (conn_db.server_dev_id)
         ) else (
           (* Add domain to server and restart service *)
-          printf "[openvpn] adding device %s\n%!" node;
-          let _ = server_append_dev node domain in
-            conn_db.clients <- conn_db.clients@[(node^"."^Config.domain)];
+          printf "[openvpn] adding device %s\n%!" rem_node;
+          let _ = server_append_dev rem_node in
+            conn_db.clients <- conn_db.clients @ [rem_node];
             (* restart server *)
-            Unix.kill pid Sys.sigusr1;
-            Lwt_unix.sleep 4.0 >> return (conn_db.server_dev_id))
-(*      ) else (
-        (* if domain seen for the first time, setup conf dir 
-         * and start server *)
-        let _ = printf "[openvpn] start serv add device %s\n%!" node in
-        let dev_id = Tap.get_new_dev_ip () in 
-        lwt dev_id = start_openvpn_daemon 0l port
-                       node domain "server" dev_id in 
-        lwt _ = Lwt_unix.sleep 1.0 in 
-        let pid = read_pid_from_file (Config.tmp_dir ^ "/" ^ 
-                                      domain ^"/server.pid") in 
-        lwt _ = Tap.setup_dev dev_id (Uri_IP.ipv4_to_string ip) in
-        let _ = Hashtbl.add conn_db.conns (domain) 
-            {ip;port;pid;dev_id;nodes=[node ^ "." ^ Config.domain];
-            conn_id;rem_node;} in 
-          return(dev_id) ) *)
- 
+          let _ = Unix.kill pid Sys.sigusr1 in 
+          lwt _ = Lwt_unix.sleep 4.0 in
+          lwt _ = Tap.setup_dev conn_db.server_dev_id
+                  (Uri_IP.ipv4_to_string ip) in
+            return (conn_db.server_dev_id))
 
   cstruct arp {
     uint8_t dst[6];
@@ -358,15 +331,14 @@ module Manager = struct
     match kind with
     | "server" ->(
       try_lwt
-        let (port,node,rem_node,domain,conn_id,local_ip) =
+        let (port, rem_node, local_ip) =
           match args with 
-          | port::node::rem_node::domain::conn_id::local_ip::_ ->
-              (int_of_string port, node, rem_node, domain, 
-              Int32.of_string conn_id, Uri_IP.string_to_ipv4 local_ip)
+          | port::rem_node::conn_id::local_ip::_ ->
+              (int_of_string port, rem_node,
+              Uri_IP.string_to_ipv4 local_ip)
           | _ -> failwith "Insufficient args"
         in
-        lwt _ = get_domain_dev_id node domain port local_ip 
-                  conn_id rem_node in
+        lwt _ = get_domain_dev_id port local_ip rem_node in
         lwt _ = send_gratuitous_arp local_ip in 
           return ("true")
       with e -> 
@@ -375,24 +347,21 @@ module Manager = struct
     )
     | "client" -> (
       try_lwt
-        let (ip, port, node, rem_node, domain, conn_id, local_ip) =
+        let (ip, port, rem_node, conn_id, local_ip) =
           match args with
-          | ip::port::node::rem_node::domain::conn_id::local_ip::_ ->
-              (Uri_IP.string_to_ipv4 ip, int_of_string port, node, 
-              rem_node, domain, 
-              Int32.of_string conn_id, Uri_IP.string_to_ipv4 local_ip)
+          | ip::port::rem_node::conn_id::local_ip::_ ->
+              (Uri_IP.string_to_ipv4 ip, int_of_string port, 
+              rem_node, Int32.of_string conn_id, 
+              Uri_IP.string_to_ipv4 local_ip)
           | _ -> failwith "Insufficient args"
         in
         let dev_id = Tap.get_new_dev_ip () in
-(*        lwt _ = start_openvpn_daemon ip port node domain 
-                  "client" dev_id in *)
+        lwt proc = start_openvpn_client ip port rem_node dev_id in 
         lwt _ = Lwt_unix.sleep 2.0 in 
-        lwt _ = Tap.setup_dev dev_id 
+        lwt _ = Tap.setup_dev dev_id  
                   (Uri_IP.ipv4_to_string local_ip) in
-         let pid = read_pid_from_file (Config.tmp_dir ^ "/" ^ 
-                                      domain ^"/client.pid") in 
-        let _ = Hashtbl.add conn_db.conns (domain) 
-            {ip;port;pid;dev_id;nodes=[node ^ "." ^ Config.domain];
+       let _ = Hashtbl.add conn_db.conns rem_node 
+            {ip;port;pid=(proc#pid);dev_id;nodes=[rem_node];
             conn_id;rem_node;} in
         lwt _ = send_gratuitous_arp local_ip in 
           return ("true")
