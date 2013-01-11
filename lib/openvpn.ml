@@ -76,7 +76,7 @@ module Manager = struct
           sprintf "%s %d %d %s %s %s %s %s %s %d"
             cmd port dev_id local_node rem_node (Uri_IP.ipv4_to_string ip)
             Config.conf_dir Config.tmp_dir
-            Config.ns_server Config.dns_port in
+            Config.iodine_node_ip Config.dns_port in
        printf "[openvpn] executing %s\n%!" exec_cmd;
       lwt _ = Lwt_unix.system exec_cmd in 
       let pid = 
@@ -84,7 +84,6 @@ module Manager = struct
           ("openvpn", 
             [|"--config"; 
               (Config.tmp_dir^"/"^rem_node^"/client.conf") ;|]) in  
-      lwt _ = Lwt_unix.sleep 1.0 in      
         return (pid)
  
    let start_openvpn_daemon port = 
@@ -116,8 +115,8 @@ module Manager = struct
    
       lwt _ = Lwt_unix.sleep 1.0 in      
       let _ = conn_db.server <- Some pid in 
-        return (pid#pid)
-    | Some pid -> return (pid#pid) 
+        return (pid)
+    | Some pid -> return (pid) 
  
 (*
  * a udp client to send data. 
@@ -277,7 +276,7 @@ module Manager = struct
           let _ = server_append_dev rem_node in
             conn_db.clients <- conn_db.clients @ [rem_node];
             (* restart server *)
-          let _ = Unix.kill pid Sys.sigusr1 in 
+          let _ = pid#kill Sys.sigusr1 in 
           lwt _ = Lwt_unix.sleep 4.0 in
           lwt _ = Tap.setup_dev conn_db.server_dev_id
                   (Uri_IP.ipv4_to_string ip) in
@@ -357,7 +356,7 @@ module Manager = struct
         in
         let dev_id = Tap.get_new_dev_ip () in
         lwt proc = start_openvpn_client ip port rem_node dev_id in 
-        lwt _ = Lwt_unix.sleep 2.0 in 
+        lwt _ = Lwt_unix.sleep 4.0 in 
         lwt _ = Tap.setup_dev dev_id  
                   (Uri_IP.ipv4_to_string local_ip) in
        let _ = Hashtbl.add conn_db.conns rem_node 

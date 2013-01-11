@@ -10,7 +10,7 @@ ns_ip=$5
 ns_port=$6
 
 # create tmp folder
-dst_dir=$tmp_dir/$remote_domain/
+dst_dir=$tmp_dir/$local_node/
 
 if [ ! -e $dst_dir ]; then 
   echo "Missing folder $dst_dir"
@@ -26,9 +26,9 @@ fi
   -S $ns_ip \
   -P $ns_port \
   SIGN \
-  $remote_host \
+  $remote_node \
   DNS_PUB \
-  $dst_dir/allowed-$remote_mode.crt \
+  $dst_dir/allowed-$remote_node.crt \
   PEM_CERT
 
 cat $dst_dir/tmp.crt $dst_dir/allowed-*.crt > $dst_dir/ca.crt
