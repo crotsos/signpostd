@@ -76,17 +76,17 @@ module Manager = struct
           sprintf "%s %d %d %s %s %s %s %s %s %d"
             cmd port dev_id local_node rem_node (Uri_IP.ipv4_to_string ip)
             Config.conf_dir Config.tmp_dir
-            Config.ns_server Config.dns_port in
+            Config.iodine_node_ip Config.dns_port in
        printf "[openvpn] executing %s\n%!" exec_cmd;
       lwt _ = Lwt_unix.system exec_cmd in 
       let pid = 
         open_process_none 
           ("openvpn", 
             [|"--config"; 
-              (Config.tmp_dir^"/"^rem_node^"/client.conf") ;|]) in 
+            (Config.tmp_dir^"/"^rem_node^"/client.conf") ;|]) in 
 
       lwt _ = Lwt_unix.sleep 4.0 in      
-        return (pid)
+       return (pid)
  
    let start_openvpn_daemon port = 
     (* Generate conf directories and keys *)
