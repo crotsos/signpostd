@@ -5,7 +5,7 @@ all: build test doc
 
 # CFLAGS += -cflags -cc,-O2,-cc,-I/usr/include/libnl3
 
-ifeq "$(sh uname)" "Linux"
+ifeq "$(shell uname)" "Linux"
 LDFLAGS += -lflags -cclib,-lc,-cclib,-lnl-3,-cclib,-lnl-route-3
 endif
 
