@@ -3,7 +3,7 @@ Requirements :Linux (debian - ubuntu)
 
 compilation requirements:
 
-> apt-get install git ocaml ocaml-compiler-libs caml4p-extra zlib1g-dev libssl-dev libnl-route-3-dev m4 uml-utilities
+> apt-get install git ocaml ocaml-compiler-libs camlp4-extra zlib1g-dev libssl-dev libnl-route-3-dev m4 uml-utilities
 
 tactics requirements:
 
