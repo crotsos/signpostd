@@ -3,7 +3,7 @@ Requirements :Linux (debian - ubuntu)
 
 compilation requirements:
 
-> apt-get install git ocaml ocaml-compiler-libs camlp4-extra zlib1g-dev libssl-dev libnl-route-3-dev m4 uml-utilities
+> apt-get install git ocaml ocaml-compiler-libs camlp4-extra zlib1g-dev libssl-dev libnl-route-3-dev m4 uml-utilities iodine
 
 tactics requirements:
 
@@ -49,7 +49,7 @@ ovsdb-server /etc/signpost/conf.db  --remote=punix:/var/run/openvswitch/db.sock 
 ovs-vswitchd  unix:/var/run/openvswitch/db.sock --detach --monitor
 
 ovs-vsctl add-br br0
-ovs-vsctl add-port $intf 
+ovs-vsctl add-port br0 $intf 
 ovs-vsctl set-controller br0 tcp:0.0.0.0:6633
 ovs-vsctl set-fail-mode br0 standalone
 
@@ -115,7 +115,7 @@ In order to get network connectivity on the command line you need to configure t
 * In order to use the dhcp protocol you need to run `sudo ipconfig set tap0 dhcp`
 * In order to set manually the network configuration `sudo ipconfig set tap0 manual ip netmask`
 
-> brew install libevent
+> brew install libevent iodine
 
 > brew link --overwrite libevent 
 
