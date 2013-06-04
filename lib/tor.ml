@@ -378,7 +378,7 @@ module Manager = struct
   let http_pkt_in_cb controller dpid evt = 
     let (in_port, buffer_id, data, _) = 
       match evt with
-        | OE.Packet_in (inp, buf, dat, dp) -> (inp, buf, dat, dp)
+        | OE.Packet_in (inp, _, buf, dat, dp) -> (inp, buf, dat, dp)
         | _ -> invalid_arg "bogus datapath_join event match!"
     in
     let m = OP.Match.raw_packet_to_match in_port data in
