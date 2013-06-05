@@ -1,6 +1,8 @@
 Requirements :Linux (debian - ubuntu)
 =====================================
 
+In order for the tor tactic to work, you need a cutting edge version of the tor software. In the ubuntu packages the software version is rather old. In order to switch tothe latest version of the tor software, it is better to install the tor package from http://www.ubuntuupdates.org/ppa/tor.
+
 compilation requirements:
 
 > apt-get install git ocaml ocaml-compiler-libs camlp4-extra zlib1g-dev libssl-dev libnl-route-3-dev m4 uml-utilities iodine

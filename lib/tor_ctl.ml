@@ -23,6 +23,7 @@ open Lwt_io
 
 type tor_ctl_state = {
   fd : file_descr;
+  output : output_channel;
   input : input_channel;
 }
 
@@ -40,9 +41,8 @@ let is_num value =
   with exn -> false
 
 let send_command st cmd = 
-  let cmd = cmd ^ "\n" in 
-  lwt _ = Lwt_unix.send st.fd cmd 0 (String.length cmd) [] in
-  
+  lwt _ = write_line st.output cmd in 
+
   let rec read_reply st status = 
     lwt line = read_line st.input in
     let (status, data,more) = 
@@ -72,9 +72,10 @@ let init_tor_ctl ip port =
     let dst = Unix.inet_addr_of_string ip in 
     lwt _ = connect fd (ADDR_INET (dst, port)) in
     let input = of_fd ~mode:(input) fd in
+    let output = of_fd ~mode:(output) fd in
   
-    let ret = {fd;input;} in 
-    lwt _ = send_command ret "AUTHENTICATE" in 
+    let ret = {fd;input;output;} in 
+    lwt _ = send_command ret "AUTHENTICATE \"\"" in 
      return ret
   with exn ->
     let _ = eprintf "[tor] error %s\n%!" (Printexc.to_string exn) in
@@ -88,7 +89,7 @@ let close_tor_ctl st =
     let _ = eprintf "[tor] error %s\n%!" (Printexc.to_string exn) in
       failwith "error"
 
-let is_service_established st = 
+let is_service_established st =
   lwt (status, reply) = send_command st "GETINFO circuit-status" in 
   let hashtbl_get_value r name = 
     try Some(Hashtbl.find r name) with Not_found -> None

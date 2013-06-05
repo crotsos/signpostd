@@ -108,7 +108,7 @@ module Manager = struct
   let filter_incoming_rst_packet controller dpid evt =
     try_lwt
       let (pkt, port, buffer_id) = match evt with 
-        | OC.Event.Packet_in(port, buffer_id, pkt, _) ->
+        | OC.Event.Packet_in(port, _, buffer_id, pkt, _) ->
                 (pkt,port,buffer_id)
         | _ -> ep "Unknown event";failwith "Invalid of action"
       in
@@ -150,7 +150,7 @@ module Manager = struct
   let rec filter_outgoing_tcp_packet controller dpid evt =
     try_lwt
       let (pkt, port, buffer_id) = match evt with 
-        | OC.Event.Packet_in(port, buffer_id, pkt, _) ->
+        | OC.Event.Packet_in(port, _, buffer_id, pkt, _) ->
                 (pkt,port,buffer_id)
         | _ -> ep "Unknown event";failwith "Invalid of action"
       in

@@ -5,7 +5,7 @@ PATH=$PATH:/usr/local/sbin/
 
 NS=`cat lib/config.ml | grep external_ip | awk '{print $4}' | sed 's/"//g'`
 IODINE_DOMAIN="i.d1.signpo.st"
-NODE_NAME=vm
+NODE_NAME=server
 
 IP=10.10.0.1
 # PASS=`cat scripts/PASSWD`
@@ -48,13 +48,15 @@ ip addr show  dev br0 | grep 10\\.\[23\]\\. | awk '{print $2;}' \
 ip addr show  dev br0 | grep 172\\.31\\. | awk '{print $2;}' \
   |  xargs -I '{}'  ip addr del  '{}' dev br0
 
+echo "#!/usr/bin/env bash" > /tmp/sp_route_cleanup.sh
+
 # cleaning default links for sp addresses
 route -n | grep 172\\.31\\.  | awk '{print $1" netmask "$3" gw "$2;}' \
-    | xargs -I '{}' echo route del -net '{}' > /tmp/sp_route_cleanup.sh
+    | xargs -I '{}' echo /sbin/route del -net '{}' >> /tmp/sp_route_cleanup.sh
 
 # cleanning up ssh routes
 route -n | grep 10\\.\[23\]\\. | awk '{print $1" netmask "$3" gw "$2;}' \
-    | xargs -I '{}' echo route del -net '{}' >> /tmp/sp_route_cleanup.sh
+    | xargs -I '{}' echo /sbin/route del -net '{}' >> /tmp/sp_route_cleanup.sh
 
 sudo sh /tmp/sp_route_cleanup.sh   
 

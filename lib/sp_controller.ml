@@ -493,7 +493,7 @@ let packet_in_cb controller dpid evt =
   try_lwt
   let (in_port, buffer_id, data, _) = 
     match evt with
-      | OE.Packet_in (inp, buf, dat, dp) -> (inp, buf, dat, dp)
+      | OE.Packet_in (inp, _, buf, dat, dp) -> (inp, buf, dat, dp)
       | _ -> invalid_arg "bogus datapath_join event match!"
   in
   (* Parse Ethernet header *)
