@@ -96,8 +96,15 @@ module Manager = struct
                 "/client_tactics/openvpn/openvpn_tactic.sh" in
       let dev_id = Tap.get_new_dev_ip () in 
       let _ = conn_db.server_dev_id <- dev_id in 
-      let domain = sprintf "%s.d%d.%s" (Nodes.get_local_name ())
-                    Config.signpost_number Config.domain in 
+      let domain = 
+        match (Nodes.get_local_name ()) with
+          | "unknown" ->
+            sprintf "d%d.%s"
+                    Config.signpost_number Config.domain  
+          | name -> 
+            sprintf "%s.d%d.%s" name
+                    Config.signpost_number Config.domain 
+      in 
       let exec_cmd = 
         if ((Nodes.get_local_name ()) = "unknown" ) then
           sprintf "%s %d %d %s d%d %s %s"
@@ -268,7 +275,8 @@ module Manager = struct
       let _ = conn_db.clients <- 
         conn_db.clients @ [(rem_node, conn_id)] in
         (* restart server *)
-      let _ = Unix.kill (pid#pid) Sys.sighup in 
+(*      let _ = Unix.kill (pid#pid) Sys.sighup in *)
+      let _ = pid#kill Sys.sighup in
       lwt _ = Lwt_unix.sleep 2.0 in
       lwt _ = Tap.setup_dev conn_db.server_dev_id
               (Uri_IP.ipv4_to_string ip) in
