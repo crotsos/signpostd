@@ -69,10 +69,14 @@ let state = {conns=Hashtbl.create 64; conn_counter=0l;}
  * Util functions to handle tactic state
  * *)
 let get_external_ip state name =
-  let ret = List.find (fun a -> (a.name = name)) state.nodes in
+  let ret = List.find (fun a -> 
+                         let _ = printf "XXXXX '%s' = '%s'\n%!" a.name name in
+                         (a.name = name)) state.nodes in
     match ret.extern_ip with
     | Some a -> a
-    | None -> raise Not_found
+    | None -> 
+        let _ = printf "XXXXXXXXXXXX get_external_ip '%s'\n%!" name in 
+          raise Not_found
 
 let get_tactic_ip state name =
   let ret = List.find (fun a -> (a.name = name)) state.nodes in
@@ -132,7 +136,7 @@ let test a b =
 
       lwt res = 
         Nodes.send_blocking b (create_tactic_request "openvpn" 
-        TEST "client" ([(string_of_int (openvpn_port + 1));] @ ips)) in   
+        TEST "client" ([(string_of_int openvpn_port);] @ ips)) in   
   
      lwt _ = (Nodes.send_blocking a rpc) in 
         dir := direction;
@@ -206,7 +210,8 @@ let start_vpn_client conn loc_node rem_node port =
     let tunnel_ip = 
       Uri_IP.ipv4_to_string 
         (get_tactic_ip conn 
-          (sprintf "%s.d%d.%s" loc_node Config.signpost_number Config.domain)) in
+          (sprintf "%s.d%d.%s" loc_node Config.signpost_number Config.domain))
+          in 
       Nodes.send_blocking loc_node 
         (create_tactic_request "openvpn" CONNECT "client" 
            [extern_ip; (string_of_int port); rem_node; 
@@ -251,9 +256,10 @@ let connect a b =
       | 3 -> begin
         let q_a = sprintf "%s.d%d.%s" a Config.signpost_number Config.domain in 
         let q_b = sprintf "%s.d%d.%s" b Config.signpost_number Config.domain in 
+        let srv = sprintf "d%d.%s" Config.signpost_number Config.domain in 
         lwt _ = start_local_server conn a b in
-        lwt _ = start_vpn_client conn b q_a openvpn_port in 
-        lwt _ = start_vpn_client conn a q_b openvpn_port in 
+        lwt _ = start_vpn_client conn b srv openvpn_port in 
+        lwt _ = start_vpn_client conn a srv openvpn_port in 
           return true
         end
       | _ -> return false
