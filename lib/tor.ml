@@ -239,25 +239,34 @@ module Manager = struct
       (Cstruct.create 4096) in
     lwt _ = OC.send_of_data controller dpid bs in 
 
-    let m = OP.Match.({wildcards=(OP.Wildcards.exact_match ());
-                     in_port=OP.Port.Local; dl_src=conn.src_mac;
-                     dl_dst=conn.dst_mac; dl_vlan=0xffff;
-                     dl_vlan_pcp=(char_of_int 0); dl_type=0x0800;
-                     nw_src=conn.src_ip; nw_dst=conn.dst_ip;
-                     nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
-                     tp_src=dst_port; tp_dst=conn.dst_port}) in 
-    let actions = [
+   let actions = [
       OP.Flow.Set_dl_src(conn.dst_mac);
       OP.Flow.Set_dl_dst(conn.src_mac);
       OP.Flow.Set_nw_src(conn.dst_ip);
       OP.Flow.Set_nw_dst(conn.src_ip);
       OP.Flow.Set_tp_dst(tor_port);
       OP.Flow.Output((OP.Port.In_port), 2000);] in
-    let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
+(*    let m = OP.Match.({wildcards=(OP.Wildcards.exact_match ());
+                     in_port=OP.Port.Local; dl_src=conn.src_mac;
+                     dl_dst=conn.dst_mac; dl_vlan=0xffff;
+                     dl_vlan_pcp=(char_of_int 0); dl_type=0x0800;
+                     nw_src=conn.src_ip; nw_dst=conn.dst_ip;
+                     nw_tos=(char_of_int 0); nw_proto=(char_of_int 6);
+                     tp_src=dst_port; tp_dst=conn.dst_port}) in 
+     let pkt = OP.Flow_mod.create m 0L OP.Flow_mod.ADD 
               ~buffer_id:(-1) ~idle_timeout:600 actions () in 
     let bs = OP.marshal_and_sub (OP.Flow_mod.marshal_flow_mod pkt)
               (Cstruct.create 4096) in
-    lwt _ = OC.send_of_data controller dpid bs in 
+    lwt _ = OC.send_of_data controller dpid bs in *)
+
+    lwt _ = Sp_controller.setup_flow ~in_port:(Some (OP.Port.int_of_port OP.Port.Local))
+      ~dl_type:(Some 0x0800) ~priority:101 
+      ~dl_src:(Some conn.src_mac) ~dl_dst:(Some conn.dst_mac)
+      ~dl_vlan:(Some 0xffff) ~dl_vlan_pcp:(Some (char_of_int 0))
+      ~nw_src:(Some conn.src_ip) ~nw_src_len:0 
+      ~nw_dst:(Some conn.dst_ip) ~nw_dst_len:0
+      ~nw_proto:(Some (char_of_int 6)) ~tp_src:(Some dst_port)
+      ~tp_dst:(Some conn.dst_port) actions in 
 
      
     (* ack the socks connect http reply *)
@@ -267,7 +276,7 @@ module Manager = struct
         (Int32.add conn.dst_isn 9l) 
         conn.dst_mac conn.src_mac
         conn.dst_ip conn.src_ip
-        tor_port m.OP.Match.tp_src (* dst_port *) 0xffff in 
+        tor_port dst_port (* dst_port *) 0xffff in 
     lwt _ = 
       OC.send_of_data controller dpid
         (OP.marshal_and_sub
