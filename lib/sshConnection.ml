@@ -82,6 +82,7 @@ let set_dev_id state name dev_id =
     ret.dev_id <- Some(dev_id)
 
 let get_tactic_ip state name =
+  let _ = printf "[ssh] looking up name %s...\n%!" in 
   let ret = List.find (fun a -> (a.name = name)) state.nodes in
     ret.tactic_ip
 
@@ -145,7 +146,7 @@ let test a b =
         List.filter (
           fun a -> not (List.mem a not_ips) ) 
           ((Nodes.get_node_local_ips a) @ 
-           (Nodes.get_node_public_ips b)) in  
+           (Nodes.get_node_public_ips a)) in  
       
       lwt res = Nodes.send_blocking b 
                   (create_tactic_request "ssh" 
@@ -211,10 +212,29 @@ let start_ssh_server conn loc_node rem_node =
         (get_tactic_ip conn 
            (sprintf "%s.d%d" loc_node Config.signpost_number)) in     
     lwt res = Nodes.send_blocking loc_node  
-                (create_tactic_request "ssh" CONNECT "server" 
+                (create_tactic_request "ssh" CONNECT "start_server" 
                    [q_rem_node; rem_node; 
                     (Int32.to_string conn.conn_id ); 
                     rem_sp_ip;tunnel_ip]) in 
+      return (res)
+  with exn -> 
+    printf "[ssh] server %s error: %s\n%!" loc_node (Printexc.to_string exn);
+    raise Ssh_error
+
+let connect_ssh_server conn loc_node rem_node dev_id =
+  try_lwt
+    let q_rem_node = (sprintf "%s.d%d" rem_node Config.signpost_number) in 
+    let rem_sp_ip = (Uri_IP.ipv4_to_string 
+                       (Nodes.get_node_sp_ip rem_node)) in
+    let tunnel_ip = 
+      Uri_IP.ipv4_to_string 
+        (get_tactic_ip conn 
+           (sprintf "%s.d%d" loc_node Config.signpost_number)) in     
+    lwt res = Nodes.send_blocking loc_node  
+                (create_tactic_request "ssh" CONNECT "connect_server" 
+                   [q_rem_node; rem_node; 
+                    (Int32.to_string conn.conn_id ); 
+                    rem_sp_ip;tunnel_ip; dev_id;]) in 
       return (res)
   with exn -> 
     printf "[ssh] server %s error: %s\n%!" loc_node (Printexc.to_string exn);
@@ -257,6 +277,7 @@ let init_ssh conn a b =
   let q_a = sprintf "%s.d%d" a Config.signpost_number in 
   let _ = set_dev_id conn q_a (int_of_string dev_id) in
   lwt _ = start_ssh_client conn b a dev_id in
+  lwt dev_id = connect_ssh_server conn a b dev_id in
     return true
 
 
@@ -389,6 +410,7 @@ let enable_cloud_ssh conn a b =
 let enable a b =
   let (a, b) = gen_key a b in
   let conn = get_state a b in
+  let _ = printf "[ssh] trying to enable connection...\n%!" in 
   lwt _ = (enable_ssh conn a b) <&>
           (enable_ssh conn b a) <&>
           (enable_cloud_ssh conn a b) in
